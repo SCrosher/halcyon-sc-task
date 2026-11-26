@@ -34,6 +34,7 @@ class MemoryStore:
         self.conversations: dict[str, Conversation] = {}
         self.messages: list[Message] = []
         self.transcripts: dict[str, list[dict[str, Any]]] = {}
+        self.request_logs: list[dict[str, Any]] = []
 
     async def upsert_member(self, member_id, name):
         self.members[member_id] = Member(member_id, name)
@@ -96,8 +97,8 @@ class MemoryStore:
     async def append_transcript(self, conversation_id, entries):
         self.transcripts.setdefault(conversation_id, []).extend(entries)
 
-    async def log_request(self, *args, **kwargs):
-        pass
+    async def log_request(self, **entry):
+        self.request_logs.append(entry)
 
     def texts(self, conversation_id: str, role: str = "assistant") -> list[str]:
         return [m.text for m in self.messages if m.conversation_id == conversation_id and m.role == role]

@@ -1,4 +1,8 @@
 import json
+import tomllib
+
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from app.config import (
     CLOUDFLARE_D1_API_URL,
@@ -56,3 +60,20 @@ def test_local_token_only_applies_locally():
     assert Settings(_env_file=None, halcyon_env="local").api_tokens == [LOCAL_API_TOKEN]
     assert Settings(_env_file=None, halcyon_env="production").api_tokens == []
     assert Settings(_env_file=None, halcyon_env="local", agent_api_tokens="a, b").api_tokens == ["a", "b"]
+
+
+def test_lock_files_satisfy_pyproject():
+    """requirements.txt must pin every dependency in pyproject.toml; re-run `npm run lock` if this fails."""
+    root = PROJECT_DIR.parent
+    for project in ("agent-api", "mock-services"):
+        declared = tomllib.loads((root / project / "pyproject.toml").read_text(encoding="utf-8"))
+        pins = {}
+        for line in (root / project / "requirements.txt").read_text(encoding="utf-8").splitlines():
+            if line and not line.startswith("#"):
+                name, _, version = line.partition("==")
+                pins[canonicalize_name(name)] = version
+        for spec in declared["project"]["dependencies"]:
+            requirement = Requirement(spec)
+            pinned = pins.get(canonicalize_name(requirement.name))
+            assert pinned is not None, f"{project}: {requirement.name} is not in requirements.txt"
+            assert requirement.specifier.contains(pinned), f"{project}: {requirement.name}=={pinned} breaks {spec!r}"

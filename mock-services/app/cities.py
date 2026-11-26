@@ -13,16 +13,15 @@ class City:
     currency: str
     symbol: str
     airport: str
-    region: str  # used to size flight durations
 
 
 CITIES: dict[str, City] = {
     c.id: c
     for c in (
-        City("london", "London", "Europe/London", "GBP", "£", "Heathrow", "europe"),
-        City("paris", "Paris", "Europe/Paris", "EUR", "€", "Charles de Gaulle", "europe"),
-        City("new_york", "New York", "America/New_York", "USD", "$", "JFK", "americas"),
-        City("los_angeles", "Los Angeles", "America/Los_Angeles", "USD", "$", "LAX", "americas"),
+        City("london", "London", "Europe/London", "GBP", "£", "Heathrow"),
+        City("paris", "Paris", "Europe/Paris", "EUR", "€", "Charles de Gaulle"),
+        City("new_york", "New York", "America/New_York", "USD", "$", "JFK"),
+        City("los_angeles", "Los Angeles", "America/Los_Angeles", "USD", "$", "LAX"),
     )
 }
 CITY_IDS = tuple(CITIES)

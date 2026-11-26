@@ -64,7 +64,12 @@ for (const project of PYTHON_PROJECTS) {
     run(python.command, [...python.args, "-m", "venv", ".venv"], { cwd });
   }
   console.log(`\n→ ${project}: installing Python dependencies`);
-  run(venvPython(project), ["-m", "pip", "install", "--quiet", "--disable-pip-version-check", "-e", ".[dev]"], { cwd });
+  // requirements.txt (from `npm run lock`) pins the versions the containers run; dev tools stay unpinned.
+  run(
+    venvPython(project),
+    ["-m", "pip", "install", "--quiet", "--disable-pip-version-check", "-c", "requirements.txt", "-e", ".[dev]"],
+    { cwd },
+  );
 }
 
 console.log("\n→ repo root: installing npm dependencies (lint and format tooling)");

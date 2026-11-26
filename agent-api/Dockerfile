@@ -6,12 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv
 
-# Dependencies first, in their own layer, so code changes don't reinstall them.
-COPY pyproject.toml ./
-RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" \
-        > /tmp/requirements.txt \
-    && pip install --no-cache-dir -r /tmp/requirements.txt
+# Pinned dependencies first, in their own layer, so code changes don't reinstall them.
+# requirements.txt is generated from pyproject.toml by `npm run lock`.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
+COPY pyproject.toml ./
 COPY app ./app
 RUN pip install --no-cache-dir --no-deps . \
     && useradd --system --uid 10001 --no-create-home app

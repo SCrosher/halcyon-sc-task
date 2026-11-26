@@ -1,8 +1,8 @@
 from collections import Counter
 from datetime import date, timedelta
 
-from app.calendar.generator import choose_traits, generate_range
-from app.calendar.geography import BLOCK_DAYS, home_city, trip_on
+from app.calendar.generator import choose_traits, generate_range, to_minutes
+from app.calendar.geography import BLOCK_DAYS, FLIGHT_MINUTES, home_city, trip_events, trip_on
 from app.calendar.rules import load_rules
 from app.cities import CITIES
 
@@ -72,3 +72,22 @@ def test_trip_days_show_where_the_member_is():
             if day == trip.end:
                 home = home_city(rules.seed, member).name
                 assert any(e.title == f"Flight home to {home}" for e in todays)
+
+
+def test_flight_length_depends_on_the_city_pair():
+    rules = load_rules()
+    seen = set()
+    for i in range(80):
+        member = f"member-{i}"
+        home = home_city(rules.seed, member)
+        for offset in range(DAYS):
+            day = START + timedelta(days=offset)
+            trip = trip_on(rules.seed, member, day)
+            if trip is None or day != trip.start:
+                continue
+            [flight] = [e for e in trip_events(rules.seed, member, trip, day, ["Acme"]) if e.title.startswith("Flight")]
+            pair = frozenset({home.id, trip.destination.id})
+            expected = min(to_minutes(flight.start_time) + FLIGHT_MINUTES[pair], 23 * 60 + 59)
+            assert to_minutes(flight.end_time) == expected
+            seen.add(pair)
+    assert seen == set(FLIGHT_MINUTES)

@@ -1,5 +1,7 @@
 """The real Store SQL and D1 client, against SQLite built from migrations/."""
 
+from datetime import timedelta
+
 import pytest
 
 from app.db import D1Error
@@ -67,3 +69,12 @@ async def test_transcript_round_trip(store):
     await store.append_transcript("c1", entries[:1])
     await store.append_transcript("c1", entries[1:])
     assert await store.load_transcript("c1") == entries
+
+
+async def test_prune_request_logs_keeps_recent_rows(store):
+    await store.log_request("POST", "/a", None, 202, 5, None, None)
+    await store.db.execute("UPDATE request_logs SET created_at = '2020-01-01T00:00:00.000000+00:00'")
+    await store.log_request("POST", "/b", None, 202, 5, None, None)
+    assert await store.prune_request_logs(timedelta(days=30)) == 1
+    rows = (await store.db.execute("SELECT path FROM request_logs")).rows
+    assert rows == [{"path": "/b"}]

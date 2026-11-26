@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     max_model_calls_per_turn: int = 12
     # Earlier turns are dropped from the model's context (they stay in the transcript table).
     max_history_turns: int = Field(default=20, ge=1)
+    # request_logs rows older than this are deleted when the service starts.
+    request_log_retention_days: int = Field(default=30, ge=1)
 
     @model_validator(mode="after")
     def _check(self) -> "Settings":

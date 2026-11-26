@@ -25,26 +25,21 @@ from ..cities import CITIES, City
 EVENT_NAMESPACE = uuid.UUID("0b8f7d52-3c1a-4e6b-9d2f-7a4c5e1b8f30")
 BLOCK_DAYS = 14
 HOME_WEIGHTS = {"london": 4, "new_york": 3, "paris": 2, "los_angeles": 2}
-
-
-@dataclass(frozen=True)
-class Place:
-    name: str
-    region: str
-    airport: str
-    covered: bool  # has restaurants in the directory
-
-
-# Trip destinations and weights. Only covered cities, so a diary never sends the member
-# somewhere the demo can't book.
-PLACES: list[tuple[Place, float]] = [
-    (Place(c.name, c.region, f"{c.airport}, {c.name}", True), 1.0) for c in CITIES.values()
-]
+# Approximate flight times between each pair of covered cities.
+FLIGHT_MINUTES = {
+    frozenset({"london", "paris"}): 75,
+    frozenset({"london", "new_york"}): 480,
+    frozenset({"london", "los_angeles"}): 660,
+    frozenset({"paris", "new_york"}): 510,
+    frozenset({"paris", "los_angeles"}): 690,
+    frozenset({"new_york", "los_angeles"}): 360,
+}
+assert set(FLIGHT_MINUTES) == {frozenset({a, b}) for a in CITIES for b in CITIES if a != b}
 
 
 @dataclass(frozen=True)
 class Trip:
-    destination: Place
+    destination: City  # always another covered city, so a diary never sends the member somewhere we can't book
     start: date
     end: date  # inclusive: the day they fly home
     purpose: str  # "work" | "leisure"
@@ -72,19 +67,11 @@ def trip_on(seed: str, member_id: str, day: date, frequent_traveller: bool = Fal
     end = start + timedelta(days=length - 1)
     if not start <= day <= end:
         return None
-    home = home_city(seed, member_id).name
-    options = [(p, w) for p, w in PLACES if p.name != home]
-    destination = rng.choices([p for p, _ in options], weights=[w for _, w in options], k=1)[0]
+    home = home_city(seed, member_id)
+    options = [c for c in CITIES.values() if c != home]
+    destination = rng.choices(options, k=1)[0]
     purpose = "work" if rng.random() < (0.75 if frequent_traveller else 0.3) else "leisure"
     return Trip(destination, start, end, purpose)
-
-
-def _flight_minutes(a: str, b: str) -> int:
-    if a == b:
-        return 120
-    if "asia" in (a, b):
-        return 720
-    return 480
 
 
 @dataclass
@@ -113,7 +100,7 @@ def trip_events(seed: str, member_id: str, trip: Trip, day: date, clients: list[
 
     label = f"Work trip: {dest.name}" if trip.purpose == "work" else f"Trip to {dest.name}"
     events = [TripEvent(event_id("stay"), label, None, None, True, dest.name, "travel")]
-    flight = _flight_minutes(home.region, dest.region)
+    flight = FLIGHT_MINUTES[frozenset({home.id, dest.id})]
 
     if day == trip.start:
         start = rng.choice([7 * 60, 8 * 60, 9 * 60 + 30])
@@ -129,6 +116,7 @@ def trip_events(seed: str, member_id: str, trip: Trip, day: date, clients: list[
             )
         )
     elif day == trip.end:
+        # A long-haul flight home leaves in the morning; a short hop can wait until the afternoon.
         start = 9 * 60 if flight > 120 else rng.choice([15 * 60, 17 * 60])
         events.append(
             TripEvent(
@@ -137,7 +125,7 @@ def trip_events(seed: str, member_id: str, trip: Trip, day: date, clients: list[
                 _hhmm(start),
                 _hhmm(start + flight),
                 False,
-                dest.airport,
+                f"{dest.airport}, {dest.name}",
                 "travel",
             )
         )

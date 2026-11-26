@@ -1,3 +1,4 @@
+import asyncio
 import re
 import uuid
 
@@ -99,6 +100,22 @@ async def test_unknown_conversation_and_validation(make_harness):
     assert (await h.client.get("/conversations/nope/messages")).status_code == 404
     bad = await h.client.post("/conversations/c1/messages", json={"message_id": "x", "text": "hi"})
     assert bad.status_code == 422
+
+
+async def test_request_log_skips_successful_reads(make_harness):
+    h = await make_harness([Step([text("Hi!")])])
+    await h.client.post("/conversations/c1/messages", json=body())
+    await h.wait_idle("c1")
+    await h.client.get("/conversations/c1/messages")  # a poll: not logged
+    await h.client.get("/conversations/nope")  # a failed read: logged
+    await h.client.get("/conversations/c1", headers={"Authorization": "Bearer wrong"})  # logged
+    for _ in range(10):  # let the background log writes run
+        await asyncio.sleep(0)
+    assert [(e["method"], e["path"], e["status_code"]) for e in h.store.request_logs] == [
+        ("POST", "/conversations/c1/messages", 202),
+        ("GET", "/conversations/nope", 404),
+        ("GET", "/conversations/c1", 401),
+    ]
 
 
 async def test_memories_endpoint(make_harness):

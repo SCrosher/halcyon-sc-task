@@ -9,6 +9,7 @@ import secrets
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 import httpx2
@@ -32,6 +33,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger(__name__)
 
 SSE_KEEPALIVE_SECONDS = 15.0
+QUIET_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -42,6 +44,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         db = D1Database(settings.d1.api_url, settings.d1.account_id, settings.d1.database_id, settings.d1.api_token)
         store = Store(db)
         await store.reset_processing()
+        # The container restarts after sleeping when idle, so pruning on startup keeps the table bounded.
+        try:
+            await store.prune_request_logs(timedelta(days=settings.request_log_retention_days))
+        except Exception:
+            log.warning("Could not prune request logs", exc_info=True)
         mock_http = httpx2.AsyncClient(
             base_url=settings.mock_services_url.rstrip("/"),
             headers=settings.mock_services_headers,
@@ -96,8 +103,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             if status_code >= 500 and error is None:
                 error = f"HTTP {status_code}"
+            # Successful reads aren't logged: a polling client makes two a second and would swamp the
+            # table. Writes, and every failed request, still are.
+            quiet = request.method in QUIET_METHODS and status_code < 400
             store_ = getattr(request.app.state, "store", None)
-            if store_ is not None:
+            if store_ is not None and not quiet:
                 task = asyncio.create_task(
                     write_request_log(
                         store_,

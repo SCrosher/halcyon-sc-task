@@ -34,7 +34,8 @@ class Settings(BaseSettings):
     # Bearer token callers must send. Empty disables auth, which is only allowed locally.
     mock_services_token: str = ""
 
-    # "Today" for calendars and bookings is the date in this timezone (matches the agent's MEMBER_TIMEZONE).
+    # "Today" for calendars is the date in this timezone, which bounds the dates a calendar can be generated for.
+    # Bookings use each restaurant's own local date instead.
     member_timezone: str = "Europe/London"
 
     # D1 - deployed environments only.

@@ -89,7 +89,7 @@
         {
           "binding": "DB",
           "database_name": "halcyon-agent-production",
-          "database_id": "",
+          "database_id": "15559a7a-9e80-4542-b13c-547d6b0cf6c5",
           "migrations_dir": "migrations"
         }
       ],

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "lock": "node scripts/lock.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:api": "node scripts/dev.mjs --no-ui",
     "db:reset": "node scripts/dev.mjs reset",

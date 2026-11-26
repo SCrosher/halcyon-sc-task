@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .db import D1Database
@@ -171,3 +171,9 @@ class Store:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (method, path, query or None, status_code, duration_ms, client_ip, error, utc_now()),
         )
+
+    async def prune_request_logs(self, older_than: timedelta) -> int:
+        """Delete request logs older than ``older_than``. Returns how many were deleted."""
+        cutoff = (datetime.now(UTC) - older_than).isoformat(timespec="microseconds")
+        result = await self.db.execute("DELETE FROM request_logs WHERE created_at < ?", (cutoff,))
+        return result.changes

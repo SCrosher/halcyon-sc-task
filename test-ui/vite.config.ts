@@ -27,6 +27,7 @@ function localAgentToken(): string {
 export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
   server: { port: 5173 },
-  // Dev server only. `vite build` never sees this, so no token is ever baked into a deploy.
-  define: command === "serve" ? { "import.meta.env.VITE_DEV_AGENT_TOKEN": JSON.stringify(localAgentToken()) } : {},
+  // Dev server only, so `npm run dev` works here as well as from the repo root. `vite build` never sees
+  // this; deployed builds get the token from scripts/deploy.mjs.
+  define: command === "serve" ? { "import.meta.env.VITE_AGENT_API_TOKEN": JSON.stringify(localAgentToken()) } : {},
 }));
