@@ -155,3 +155,19 @@ class Store:
                 for entry in entries
             ]
         )
+
+    async def log_request(
+        self,
+        method: str,
+        path: str,
+        query: str | None,
+        status_code: int,
+        duration_ms: int,
+        client_ip: str | None,
+        error: str | None,
+    ) -> None:
+        await self.db.execute(
+            "INSERT INTO request_logs (method, path, query, status_code, duration_ms, client_ip, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (method, path, query or None, status_code, duration_ms, client_ip, error, utc_now()),
+        )

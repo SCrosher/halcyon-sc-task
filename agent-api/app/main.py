@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import secrets
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -27,6 +28,8 @@ from .schemas import Accepted, ConversationOut, MemoriesOut, MemoryOut, MessageO
 from .store import Store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+log = logging.getLogger(__name__)
 
 SSE_KEEPALIVE_SECONDS = 15.0
 
@@ -50,6 +53,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.conversations = ConversationService(settings, store, runner)
         yield
         await app.state.conversations.drain()
+        if background_writes:
+            await asyncio.gather(*background_writes, return_exceptions=True)
         await llm.aclose()
         await mock_http.aclose()
         await db.close()
@@ -61,6 +66,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
+
+    background_writes: set[asyncio.Task] = set()
+
+    async def write_request_log(store: Store, **entry: Any) -> None:
+        try:
+            await store.log_request(**entry)
+        except Exception:
+            log.warning("Could not write request log for %s %s", entry["method"], entry["path"], exc_info=True)
+
+    @app.middleware("http")
+    async def request_logging(request: Request, call_next):
+        """Record every API call in request_logs; written in the background so it never slows or fails a request."""
+        if request.url.path == "/health":
+            return await call_next(request)
+        started = time.perf_counter()
+        status_code, error = 500, None
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            log.exception("Unhandled error in %s %s", request.method, request.url.path)
+            raise
+        finally:
+            if status_code >= 500 and error is None:
+                error = f"HTTP {status_code}"
+            store_ = getattr(request.app.state, "store", None)
+            if store_ is not None:
+                task = asyncio.create_task(
+                    write_request_log(
+                        store_,
+                        method=request.method,
+                        path=request.url.path,
+                        query=request.url.query,
+                        status_code=status_code,
+                        duration_ms=round((time.perf_counter() - started) * 1000),
+                        client_ip=request.headers.get("cf-connecting-ip")
+                        or (request.client.host if request.client else None),
+                        error=error,
+                    )
+                )
+                background_writes.add(task)
+                task.add_done_callback(background_writes.discard)
 
     bearer = HTTPBearer(auto_error=False)
 

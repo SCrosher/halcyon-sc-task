@@ -96,6 +96,9 @@ class MemoryStore:
     async def append_transcript(self, conversation_id, entries):
         self.transcripts.setdefault(conversation_id, []).extend(entries)
 
+    async def log_request(self, *args, **kwargs):
+        pass
+
     def texts(self, conversation_id: str, role: str = "assistant") -> list[str]:
         return [m.text for m in self.messages if m.conversation_id == conversation_id and m.role == role]
 
