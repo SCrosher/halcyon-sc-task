@@ -21,14 +21,47 @@ from zoneinfo import ZoneInfo
 
 from ..cities import CITIES, City
 from ..db import D1Database
+from .areas import nearby_areas
 
 DATA_PATH = Path(__file__).with_name("restaurants.json")
 SLOT_MIN = 30
 DAY_FACTOR = {0: 0.55, 1: 0.65, 2: 0.8, 3: 0.95, 4: 1.2, 5: 1.25, 6: 0.7}
+DIETARY = ("vegetarian", "vegan", "pescatarian", "gluten_free", "dairy_free", "halal", "kosher")
+ALLERGENS = ("gluten", "nuts", "peanuts", "sesame", "shellfish", "fish", "dairy", "eggs", "soy")
+SPICE_LABELS = {0: "not spicy", 1: "mild", 2: "some spicy dishes", 3: "spice-forward"}
+# Common ways of saying the same thing, so a near-miss term doesn't cost the agent a retry.
+DIETARY_ALIASES = {"gluten-free": "gluten_free", "dairy-free": "dairy_free", "pescetarian": "pescatarian"}
+ALLERGEN_ALIASES = {
+    "coeliac": "gluten",
+    "celiac": "gluten",
+    "wheat": "gluten",
+    "gluten_free": "gluten",
+    "nut": "nuts",
+    "tree_nuts": "nuts",
+    "tree nuts": "nuts",
+    "peanut": "peanuts",
+    "egg": "eggs",
+    "milk": "dairy",
+    "lactose": "dairy",
+    "crustaceans": "shellfish",
+    "molluscs": "shellfish",
+    "soya": "soy",
+}
 
 
 class BookingError(ValueError):
     pass
+
+
+def _normalise(values: list[str] | None, allowed: tuple[str, ...], aliases: dict[str, str], name: str) -> list[str]:
+    out = []
+    for value in values or []:
+        key = value.strip().lower()
+        key = aliases.get(key, key)
+        if key not in allowed:
+            raise BookingError(f"Unknown {name} value {value!r}; use: {', '.join(allowed)}.")
+        out.append(key)
+    return out
 
 
 @lru_cache
@@ -100,6 +133,10 @@ class RestaurantService:
             "rating": r["rating"],
             "tags": r["tags"],
             "dietary_options": r["dietary"],
+            # Allergens the kitchen says it can reliably keep out of a dish (e.g. gluten = coeliac-safe).
+            "allergen_safe": r["allergen_safe"],
+            "allergen_notes": r["allergen_notes"] or "No allergen information in this listing.",
+            "spice": SPICE_LABELS[r["spice_level"]],
             "description": r["description"],
         }
 
@@ -127,20 +164,50 @@ class RestaurantService:
         min_price_level: int | None = None,
         tags: list[str] | None = None,
         dietary: list[str] | None = None,
+        allergies: list[str] | None = None,
+        max_spice_level: int | None = None,
         party_size: int | None = None,
+        include_nearby: bool = False,
+        exclude_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
+        """Matching restaurants, best first.
+
+        With ``include_nearby``, restaurants in the area's neighbours are included after those in the
+        area itself, nearest neighbour first.
+        """
+        dietary = _normalise(dietary, DIETARY, DIETARY_ALIASES, "dietary")
+        allergies = _normalise(allergies, ALLERGENS, ALLERGEN_ALIASES, "allergies")
+        areas = [area.lower()] if area else []
+        if area and include_nearby:
+            areas += [a.lower() for a in nearby_areas(city, area)]
+        excluded = set(exclude_ids or [])
+
+        def area_rank(r: dict[str, Any]) -> int:
+            name = r["area"].lower()
+            # Exact neighbour names first; the substring test keeps "soho" matching "Soho" etc.
+            for i, a in enumerate(areas):
+                if name == a or (i == 0 and a in name):
+                    return i
+            return -1
+
         def matches(r: dict[str, Any]) -> bool:
+            if r["id"] in excluded:
+                return False
             if city and r["city"] != city:
                 return False
             if cuisine and cuisine.lower() not in r["cuisine"].lower():
                 return False
-            if area and area.lower() not in r["area"].lower():
+            if areas and area_rank(r) < 0:
+                return False
+            if allergies and not all(a in r["allergen_safe"] for a in allergies):
+                return False
+            if max_spice_level is not None and r["spice_level"] > max_spice_level:
                 return False
             if max_price_level and r["price_level"] > max_price_level:
                 return False
             if min_price_level and r["price_level"] < min_price_level:
                 return False
-            if dietary and not all(d.lower() in r["dietary"] for d in dietary):
+            if dietary and not all(d in r["dietary"] for d in dietary):
                 return False
             if party_size and party_size > r["max_party_size"]:
                 return False
@@ -154,12 +221,31 @@ class RestaurantService:
         wanted_tags = {t.lower() for t in tags or []}
 
         def score(r: dict[str, Any]) -> tuple:
-            return (len(wanted_tags & set(r["tags"])), r["rating"])
+            return (-area_rank(r) if areas else 0, len(wanted_tags & set(r["tags"])), r["rating"])
 
         if wanted_tags:
             # Tags rank rather than filter, so "romantic, quiet" still returns near-misses.
             results = [r for r in results if wanted_tags & set(r["tags"])] or results
         return sorted(results, key=score, reverse=True)
+
+    async def search_available(
+        self, matches: list[dict[str, Any]], day: date, party_size: int, time: str | None, limit: int
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Split ranked matches into (bookable, fully booked), checking every match in one query.
+
+        Checking them all means a full first choice doesn't crowd out a free second one.
+        """
+        for r in matches:
+            self._validate_day(r, day)
+        booked = await self._booked_tables_many([r["id"] for r in matches], day)
+        available, full = [], []
+        for r in matches:
+            avail = await self.availability(r["id"], day, party_size, time, booked=booked.get(r["id"], {}))
+            item = {**self.summary(r), "available_times": avail["available_times"]}
+            if avail["note"]:
+                item["availability_note"] = avail["note"]
+            (available if avail["available_times"] else full).append(item)
+        return available[:limit], full
 
     def _service_slots(self, r: dict[str, Any], day: date) -> list[str]:
         if day.weekday() not in r["open_days"]:
@@ -195,6 +281,23 @@ class RestaurantService:
             taken[row["time"]] = taken.get(row["time"], 0) + tables_needed(int(row["party_size"]))
         return taken
 
+    async def _booked_tables_many(self, restaurant_ids: list[str], day: date) -> dict[str, dict[str, int]]:
+        if not restaurant_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in restaurant_ids)
+        rows = (
+            await self.db.execute(
+                "SELECT restaurant_id, time, party_size FROM bookings "
+                f"WHERE restaurant_id IN ({placeholders}) AND date = ? AND status = 'confirmed'",
+                (*restaurant_ids, day.isoformat()),
+            )
+        ).rows
+        taken: dict[str, dict[str, int]] = {}
+        for row in rows:
+            slots = taken.setdefault(row["restaurant_id"], {})
+            slots[row["time"]] = slots.get(row["time"], 0) + tables_needed(int(row["party_size"]))
+        return taken
+
     def _validate_day(self, r: dict[str, Any], day: date) -> None:
         city = city_of(r)
         today = self._today(city)
@@ -203,13 +306,17 @@ class RestaurantService:
         if day > today + timedelta(days=90):
             raise BookingError("Bookings open 90 days in advance.")
 
-    async def slots(self, restaurant_id: str, day: date, party_size: int) -> list[Slot]:
+    async def slots(
+        self, restaurant_id: str, day: date, party_size: int, booked: dict[str, int] | None = None
+    ) -> list[Slot]:
+        """Open slots; ``booked`` (tables taken per time) skips the lookup when the caller has it."""
         r = self.get(restaurant_id)
         self._validate_day(r, day)
         if party_size > r["max_party_size"]:
             return []
         needed = tables_needed(party_size)
-        booked = await self._booked_tables(restaurant_id, day)
+        if booked is None:
+            booked = await self._booked_tables(restaurant_id, day)
         result = []
         for slot in self._service_slots(r, day):
             left = r["tables_per_slot"] - self._baseline_tables_taken(r, day, slot) - booked.get(slot, 0)
@@ -218,10 +325,16 @@ class RestaurantService:
         return result
 
     async def availability(
-        self, restaurant_id: str, day: date, party_size: int, preferred_time: str | None = None, window_min: int = 90
+        self,
+        restaurant_id: str,
+        day: date,
+        party_size: int,
+        preferred_time: str | None = None,
+        window_min: int = 90,
+        booked: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         r = self.get(restaurant_id)
-        all_slots = await self.slots(restaurant_id, day, party_size)
+        all_slots = await self.slots(restaurant_id, day, party_size, booked)
         times = [s.time for s in all_slots]
         if preferred_time:
             target = _minutes(preferred_time)

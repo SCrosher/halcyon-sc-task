@@ -38,6 +38,7 @@ class Message:
     role: str
     text: str
     created_at: str
+    kind: str = "message"  # or "status": tool status lines and holding messages
 
 
 @dataclass
@@ -118,13 +119,48 @@ class Store:
         rows = (await self.db.execute("SELECT * FROM messages WHERE id = ?", (message_id,))).rows
         return Message(**rows[0]) if rows else None
 
-    async def add_message(self, conversation_id: str, role: str, text: str, message_id: str | None = None) -> Message:
-        message = Message(message_id or str(uuid.uuid4()), conversation_id, role, text, utc_now())
+    async def add_message(
+        self, conversation_id: str, role: str, text: str, message_id: str | None = None, kind: str = "message"
+    ) -> Message:
+        message = Message(message_id or str(uuid.uuid4()), conversation_id, role, text, utc_now(), kind)
         await self.db.execute(
-            "INSERT INTO messages (id, conversation_id, role, text, created_at) VALUES (?, ?, ?, ?, ?)",
-            (message.id, conversation_id, role, text, message.created_at),
+            "INSERT INTO messages (id, conversation_id, role, text, created_at, kind) VALUES (?, ?, ?, ?, ?, ?)",
+            (message.id, conversation_id, role, text, message.created_at, kind),
         )
         return message
+
+    async def list_earlier_conversations(
+        self, member_id: str, conversation_id: str, limit: int
+    ) -> list[tuple[Conversation, list[Message]]]:
+        """The member's ``limit`` most recent conversations started before this one, oldest first.
+
+        Each comes with its messages, minus status lines. Conversations with no messages are skipped.
+        """
+        if limit <= 0:
+            return []
+        rows = (
+            await self.db.execute(
+                "SELECT * FROM conversations WHERE member_id = ? AND id != ? AND created_at < "
+                "COALESCE((SELECT created_at FROM conversations WHERE id = ?), '9999') "
+                "ORDER BY created_at DESC LIMIT CAST(? AS INTEGER)",
+                (member_id, conversation_id, conversation_id, limit),
+            )
+        ).rows
+        conversations = [Conversation(**r) for r in reversed(rows)]
+        if not conversations:
+            return []
+        placeholders = ", ".join("?" for _ in conversations)
+        message_rows = (
+            await self.db.execute(
+                f"SELECT * FROM messages WHERE conversation_id IN ({placeholders}) AND kind = 'message' "
+                "ORDER BY created_at, rowid",
+                tuple(c.id for c in conversations),
+            )
+        ).rows
+        by_conversation: dict[str, list[Message]] = {}
+        for r in message_rows:
+            by_conversation.setdefault(r["conversation_id"], []).append(Message(**r))
+        return [(c, by_conversation[c.id]) for c in conversations if c.id in by_conversation]
 
     async def list_messages(self, conversation_id: str) -> list[Message]:
         rows = (

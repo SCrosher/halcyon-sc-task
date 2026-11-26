@@ -15,7 +15,13 @@ from ..channel import TurnChannel
 from ..config import Settings
 from ..store import Member, Store
 from .llm import ClaudeClient, ToolInputParseError
-from .prompts import SYSTEM_PROMPT, turn_context
+from .prompts import (
+    READY_TO_REPLY,
+    SYSTEM_PROMPT,
+    TOOL_STEP_PROMPT,
+    earlier_conversations_context,
+    turn_context,
+)
 from .tools.base import STATUS_FIELD, Tool, ToolFailure, TurnContext
 from .tools.calendar import CALENDAR_TOOLS
 from .tools.memory import MEMORY_TOOLS
@@ -27,6 +33,13 @@ APOLOGY = "My apologies, something went wrong on our side. Would you mind trying
 TIMEOUT_APOLOGY = "My apologies, this is taking far longer than it should. Would you mind trying again in a moment?"
 REFUSAL = "I'm afraid that isn't something I can help with."
 MAX_JSON_RETRIES = 2
+# Offered to the tool model only: its way of saying "done with tools", since forced tool choice isn't
+# available. Never run, and stripped from the transcript.
+READY_TOOL = {
+    "name": READY_TO_REPLY,
+    "description": "Call this on its own once you have everything the reply needs, or when no tool is needed.",
+    "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+}
 
 
 class _Iteration:
@@ -61,14 +74,26 @@ class TurnRunner:
         turn: list[dict[str, Any]] = [{"role": "user", "content": [{"type": "text", "text": text}]}]
         session = RestaurantSession(self.settings)
         try:
-            memories = await self.store.list_memories(member.id)
-            history = recent_turns(await self.store.load_transcript(conversation_id), self.settings.max_history_turns)
+            # Open the restaurant connection while the context loads and the model thinks.
+            self.catalog.prewarm(session)
+            memories, transcript, earlier, restaurant_tools = await asyncio.gather(
+                self.store.list_memories(member.id),
+                self.store.load_transcript(conversation_id),
+                self.store.list_earlier_conversations(member.id, conversation_id, self.settings.earlier_conversations),
+                self.catalog.tools(session),
+            )
+            history = recent_turns(transcript, self.settings.max_history_turns)
             # Operator-authored context after the member's message (mid-conversation system message).
             turn.append({"role": "system", "content": turn_context(member, memories)})
-            tools = [*MEMORY_TOOLS, *CALENDAR_TOOLS, *await self.catalog.tools(session)]
+            # Earlier conversations don't change during this one, so they sit in the cached system prefix.
+            system = [{"type": "text", "text": SYSTEM_PROMPT}]
+            earlier_text = earlier_conversations_context(earlier)
+            if earlier_text:
+                system.append({"type": "text", "text": earlier_text})
+            tools = [*MEMORY_TOOLS, *CALENDAR_TOOLS, *restaurant_tools]
             ctx = TurnContext(member, self.store, self.settings, self.mock_http)
             status = await asyncio.wait_for(
-                self._loop(history, turn, tools, ctx, channel), timeout=self.settings.turn_timeout_seconds
+                self._loop(system, history, turn, tools, ctx, channel), timeout=self.settings.turn_timeout_seconds
             )
         except TimeoutError:
             log.warning("Turn timed out in conversation %s", conversation_id)
@@ -89,14 +114,53 @@ class TurnRunner:
             log.exception("Could not save the transcript for conversation %s", conversation_id)
         return status
 
-    async def _loop(self, history, turn, tools: list[Tool], ctx: TurnContext, channel: TurnChannel) -> str:
+    async def _loop(
+        self, system: list[dict[str, Any]], history, turn, tools: list[Tool], ctx: TurnContext, channel: TurnChannel
+    ) -> str:
+        """Tool steps run on the fast tool model until it signals ready_to_reply; the reply model then
+        writes the member's reply (and may still call tools itself)."""
         by_name = {t.name: t for t in tools}
         definitions = [t.definition() for t in tools]
+        tool_step = bool(self.settings.tool_model)
+        tool_step_system = [*system, {"type": "text", "text": TOOL_STEP_PROMPT}]
+        tool_step_definitions = [*definitions, READY_TOOL]
 
         for call in range(self.settings.max_model_calls_per_turn):
             channel.activity = "starting" if call == 0 else "composing"
             state = _Iteration()
-            response = await self._call_model(history + turn, definitions, by_name, state, channel)
+            if tool_step:
+                response = await self._call_model(
+                    history + turn,
+                    tool_step_definitions,
+                    by_name,
+                    state,
+                    channel,
+                    system=tool_step_system,
+                    model=self.settings.tool_model,
+                    effort=self.settings.tool_effort,
+                    stream_text=False,
+                )
+                tool_uses = [
+                    b for b in response.content if b.get("type") == "tool_use" and b.get("name") != READY_TO_REPLY
+                ]
+                if response.stop_reason == "refusal" or not tool_uses:
+                    # Ready (or it answered in text, or declined): drop this response unsent and let the
+                    # reply model take the turn from the same point.
+                    tool_step = False
+                    continue
+                # Keep only the real tool calls; the ready signal and any text never reach the transcript.
+                content = [
+                    b
+                    for b in response.content
+                    if b.get("type") != "text" and not (b.get("type") == "tool_use" and b.get("name") == READY_TO_REPLY)
+                ]
+                turn.append({"role": "assistant", "content": content})
+                turn.append(
+                    {"role": "user", "content": await self._run_tools(response, tool_uses, by_name, ctx, channel)}
+                )
+                continue
+
+            response = await self._call_model(history + turn, definitions, by_name, state, channel, system=system)
             tool_uses = [b for b in response.content if b.get("type") == "tool_use"]
             content = response.content
             if tool_uses:
@@ -111,14 +175,9 @@ class TurnRunner:
                 return "ok"
             if tool_uses:
                 self._discard_draft(state, channel)
-                if response.stop_reason == "max_tokens":
-                    # A truncated tool input parses as a valid partial object; don't run it.
-                    results = [
-                        _tool_result(b["id"], "Output was cut off; call the tool again.", True) for b in tool_uses
-                    ]
-                else:
-                    results = await asyncio.gather(*(self._run_tool(b, by_name, ctx, channel) for b in tool_uses))
-                turn.append({"role": "user", "content": list(results)})
+                turn.append(
+                    {"role": "user", "content": await self._run_tools(response, tool_uses, by_name, ctx, channel)}
+                )
                 continue
 
             await channel.post(state.take_text())
@@ -127,31 +186,55 @@ class TurnRunner:
         log.warning("Turn hit max_model_calls_per_turn (%s)", self.settings.max_model_calls_per_turn)
         return await self._fail(turn, channel, APOLOGY)
 
+    async def _run_tools(
+        self, response, tool_uses: list[dict[str, Any]], by_name: dict[str, Tool], ctx: TurnContext, channel
+    ) -> list[dict[str, Any]]:
+        if response.stop_reason == "max_tokens":
+            # A truncated tool input parses as a valid partial object; don't run it.
+            return [_tool_result(b["id"], "Output was cut off; call the tool again.", True) for b in tool_uses]
+        return list(await asyncio.gather(*(self._run_tool(b, by_name, ctx, channel) for b in tool_uses)))
+
     async def _call_model(
-        self, messages, definitions, by_name: dict[str, Tool], state: _Iteration, channel: TurnChannel
+        self,
+        messages,
+        definitions,
+        by_name: dict[str, Tool],
+        state: _Iteration,
+        channel: TurnChannel,
+        *,
+        system: list[dict[str, Any]],
+        model: str | None = None,
+        effort: str | None = None,
+        stream_text: bool = True,
     ):
         async def on_text(text: str) -> None:
             state.text.append(text)
-            channel.delta(text)
+            if stream_text:  # the tool step's text is never shown, so don't stream it
+                channel.delta(text)
 
         async def on_tool_use(block: dict[str, Any]) -> None:
             # Post progress the moment the call is generated, before the tool runs. Any text the
             # model streamed before the call is never sent: only the curated status message is.
-            self._discard_draft(state, channel)
+            if stream_text:
+                self._discard_draft(state, channel)
+            else:
+                state.text.clear()
             tool = by_name.get(block.get("name", ""))
             status = (block.get("input") or {}).get(STATUS_FIELD)
             if tool and tool.user_facing and isinstance(status, str) and not state.status_posted:
                 state.status_posted = True
-                await channel.post(status)
+                await channel.post(status, kind="status")
 
         for attempt in range(MAX_JSON_RETRIES + 1):
             try:
                 return await self.llm.respond(
-                    system=SYSTEM_PROMPT,
+                    system=system,
                     messages=messages,
                     tools=definitions,
                     on_text=on_text,
                     on_tool_use=on_tool_use,
+                    model=model,
+                    effort=effort,
                 )
             except ToolInputParseError:
                 # No complete tool_use to answer, so re-issue the call. Text already posted as a message
@@ -161,7 +244,8 @@ class TurnRunner:
                 log.warning("Re-issuing model call after unparseable tool input")
                 if state.text:
                     state.text.clear()
-                    channel.reset_reply()
+                    if stream_text:
+                        channel.reset_reply()
         raise AssertionError("unreachable")
 
     @staticmethod

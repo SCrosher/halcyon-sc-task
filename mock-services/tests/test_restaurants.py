@@ -207,3 +207,62 @@ async def test_cancelled_and_past_bookings_cannot_be_changed(restaurants, d1):
         await restaurants.modify_booking(past["reference"], "m1", party_size=3)
     with pytest.raises(BookingError, match="in the past"):
         await restaurants.cancel_booking(past["reference"], "m1")
+
+
+def test_every_restaurant_has_allergen_and_spice_data_and_a_mapped_area():
+    from app.restaurants.areas import NEARBY
+    from app.restaurants.service import ALLERGENS, DIETARY
+
+    for r in load_restaurants():
+        assert set(r["dietary"]) <= set(DIETARY), r["id"]
+        assert set(r["allergen_safe"]) <= set(ALLERGENS), r["id"]
+        assert r["spice_level"] in (0, 1, 2, 3), r["id"]
+        assert r["area"] in NEARBY[r["city"]], f"{r['id']}: add {r['area']!r} to areas.NEARBY"
+    for city, areas in NEARBY.items():
+        for neighbours in areas.values():
+            assert set(neighbours) <= set(areas), city
+
+
+def test_every_city_has_coeliac_safe_options(restaurants):
+    for city in CITIES:
+        assert len(restaurants.search(city=city, allergies=["gluten"])) >= 3, city
+
+
+def test_allergies_are_stricter_than_dietary_and_accept_aliases(restaurants):
+    gluten_free = {r["id"] for r in restaurants.search(city="london", dietary=["gluten_free"])}
+    coeliac = {r["id"] for r in restaurants.search(city="london", allergies=["coeliac"])}
+    assert coeliac < gluten_free
+    assert "trattoria-nonna-rosa" in gluten_free and "trattoria-nonna-rosa" not in coeliac
+    with pytest.raises(BookingError, match="Unknown allergies"):
+        restaurants.search(city="london", allergies=["kryptonite"])
+
+
+def test_spice_filter(restaurants):
+    mild = restaurants.search(city="london", max_spice_level=1)
+    assert mild and all(r["spice_level"] <= 1 for r in mild)
+    assert "sichuan-pavilion" not in {r["id"] for r in mild}
+
+
+def test_nearby_areas_rank_after_the_area_itself(restaurants):
+    exact = restaurants.search(city="london", area="Islington")
+    wider = restaurants.search(city="london", area="Islington", include_nearby=True)
+    assert {r["area"] for r in exact} == {"Islington"}
+    assert len(wider) > len(exact)
+    assert [r["id"] for r in wider[: len(exact)]] == [r["id"] for r in exact]
+    excluded = restaurants.search(city="london", area="Islington", exclude_ids=["trattoria-nonna-rosa"])
+    assert "trattoria-nonna-rosa" not in {r["id"] for r in excluded}
+
+
+async def test_search_available_drops_full_restaurants(restaurants):
+    matches = restaurants.search(city="london", area="Islington", include_nearby=True)
+    target = matches[0]
+    party = 2
+    for slot in await restaurants.slots(target["id"], THURSDAY, party):
+        for _ in range(slot.tables_left):
+            await restaurants.create_booking(
+                restaurant_id=target["id"], day=THURSDAY, time=slot.time, party_size=party,
+                member_id="m2", member_name="Someone",
+            )
+    available, full = await restaurants.search_available(matches, THURSDAY, party, "19:30", 3)
+    assert target["id"] in {r["restaurant_id"] for r in full}
+    assert len(available) == 3 and all(r["available_times"] for r in available)

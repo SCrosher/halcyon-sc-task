@@ -27,6 +27,11 @@ class ModelResponse:
     stop_reason: str | None
 
 
+def _supports_fallbacks(model: str) -> bool:
+    # Haiku has no server-side refusal fallback; sending the beta to it would be rejected.
+    return not model.startswith("claude-haiku")
+
+
 def _block_param(block: Any) -> dict[str, Any]:
     data = block.to_dict(mode="json")
     return {k: v for k, v in data.items() if v is not None and k not in CLIENT_ONLY_FIELDS}
@@ -44,27 +49,31 @@ class ClaudeClient:
     async def respond(
         self,
         *,
-        system: str,
+        system: str | list[dict[str, Any]],
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         on_text: OnText,
         on_tool_use: OnToolUse,
+        model: str | None = None,
+        effort: str | None = None,
     ) -> ModelResponse:
         """Stream one model response, reporting text deltas and each completed tool_use block.
 
-        Raises ``ToolInputParseError`` if a streamed tool input is not parseable JSON; the caller
-        retries the call. Errors raised by the callbacks propagate unchanged.
+        ``model``/``effort`` default to the reply model's settings. Raises ``ToolInputParseError``
+        if a streamed tool input is not parseable JSON; the caller retries the call. Errors raised
+        by the callbacks propagate unchanged.
         """
+        model = model or self.settings.anthropic_model
         kwargs: dict[str, Any] = {
-            "model": self.settings.anthropic_model,
+            "model": model,
             "max_tokens": self.settings.max_output_tokens,
             "system": system,
             "messages": messages,
             "tools": tools,
-            "output_config": {"effort": self.settings.agent_effort},
+            "output_config": {"effort": effort or self.settings.agent_effort},
             "cache_control": {"type": "ephemeral"},
         }
-        if self.settings.anthropic_fallbacks == "default":
+        if self.settings.anthropic_fallbacks == "default" and _supports_fallbacks(model):
             kwargs["betas"] = [FALLBACK_BETA]
             kwargs["fallbacks"] = "default"
 

@@ -81,15 +81,30 @@ class MemoryStore:
     async def get_message(self, message_id):
         return next((m for m in self.messages if m.id == message_id), None)
 
-    async def add_message(self, conversation_id, role, text, message_id=None):
+    async def add_message(self, conversation_id, role, text, message_id=None, kind="message"):
         if message_id and await self.get_message(message_id):
             raise D1Error("UNIQUE constraint failed: messages.id")
-        message = Message(message_id or str(uuid.uuid4()), conversation_id, role, text, utc_now())
+        message = Message(message_id or str(uuid.uuid4()), conversation_id, role, text, utc_now(), kind)
         self.messages.append(message)
         return message
 
     async def list_messages(self, conversation_id):
         return [m for m in self.messages if m.conversation_id == conversation_id]
+
+    async def list_earlier_conversations(self, member_id, conversation_id, limit):
+        current = self.conversations.get(conversation_id)
+        earlier = sorted(
+            (c for c in self.conversations.values()
+             if c.member_id == member_id and c.id != conversation_id
+             and (current is None or c.created_at < current.created_at)),
+            key=lambda c: c.created_at,
+        )[-limit:] if limit else []
+        out = []
+        for c in earlier:
+            msgs = [m for m in self.messages if m.conversation_id == c.id and m.kind == "message"]
+            if msgs:
+                out.append((c, msgs))
+        return out
 
     async def load_transcript(self, conversation_id):
         return list(self.transcripts.get(conversation_id, []))
@@ -130,7 +145,7 @@ class ScriptedLLM:
     steps: list[Step]
     calls: list[dict[str, Any]] = field(default_factory=list)
 
-    async def respond(self, *, system, messages, tools, on_text, on_tool_use):
+    async def respond(self, *, system, messages, tools, on_text, on_tool_use, **_options):
         self.calls.append({"system": system, "messages": [dict(m) for m in messages], "tools": tools})
         step = self.steps.pop(0)
         if step.delay:
@@ -205,6 +220,9 @@ class FakeCatalog:
         self.delay = delay
         self.calls: list[dict[str, Any]] = []
 
+    def prewarm(self, session) -> None:
+        pass
+
     async def tools(self, session) -> list[Tool]:
         async def search(args, ctx):
             self.calls.append({**args, "member_id": ctx.member.id})
@@ -264,7 +282,10 @@ async def make_harness():
         **overrides: Any,
     ) -> Harness:
         settings = Settings(
-            _env_file=None, agent_api_tokens=TOKEN, holding_message_after_seconds=holding_after, **overrides
+            _env_file=None,
+            agent_api_tokens=TOKEN,
+            holding_message_after_seconds=holding_after,
+            **{"tool_model": "", **overrides},
         )
         store = store or MemoryStore()
         llm = ScriptedLLM(list(steps))

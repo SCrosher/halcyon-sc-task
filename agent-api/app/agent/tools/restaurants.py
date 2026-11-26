@@ -93,6 +93,12 @@ class RestaurantSession:
                 self._client = await asyncio.shield(self._ready)
             return self._client
 
+    def prewarm(self) -> None:
+        """Open the connection in the background, so the handshake overlaps the first model call."""
+        task = asyncio.create_task(self.client())
+        # A failure resurfaces on the first real call; here it only needs retrieving.
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
+
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
         try:
             result = await (await self.client()).call_tool(name, arguments)
@@ -143,6 +149,10 @@ class RestaurantCatalog:
             await self._definitions_cached()
         except Exception:
             log.warning("Could not pre-load restaurant MCP tools; the first turn will retry", exc_info=True)
+
+    @staticmethod
+    def prewarm(session: RestaurantSession) -> None:
+        session.prewarm()
 
     async def tools(self, session: RestaurantSession) -> list[Tool]:
         try:

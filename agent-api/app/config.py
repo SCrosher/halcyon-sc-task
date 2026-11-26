@@ -37,8 +37,13 @@ class Settings(BaseSettings):
 
     # Claude
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-opus-5-5"
+    # Writes every member-facing reply.
+    anthropic_model: str = "claude-sonnet-5-5"
     agent_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    # Runs the tool-calling steps of a turn (searches, diary, memory, bookings), then hands over to
+    # anthropic_model for the reply. Empty = anthropic_model does everything.
+    tool_model: str = "claude-haiku-5-5"
+    tool_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
     # "default" = Anthropic server-side refusal fallbacks; "off" to disable.
     anthropic_fallbacks: Literal["default", "off"] = "default"
     max_output_tokens: int = 16000
@@ -59,6 +64,8 @@ class Settings(BaseSettings):
     max_model_calls_per_turn: int = 12
     # Earlier turns are dropped from the model's context (they stay in the transcript table).
     max_history_turns: int = Field(default=20, ge=1)
+    # The member's most recent earlier conversations given to the model as background, oldest first.
+    earlier_conversations: int = Field(default=5, ge=0)
     # request_logs rows older than this are deleted when the service starts.
     request_log_retention_days: int = Field(default=30, ge=1)
 

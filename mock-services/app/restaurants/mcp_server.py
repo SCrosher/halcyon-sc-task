@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
 from ..cities import CITIES
-from .service import BookingError, RestaurantService
+from .service import ALLERGENS, DIETARY, BookingError, RestaurantService
 
 mcp = MCPServer(
     name="halcyon-restaurants",
@@ -18,9 +18,9 @@ mcp = MCPServer(
     version="1.0.0",
     instructions=(
         "Mock restaurant directory for London, Paris, New York and Los Angeles only. Search first (always "
-        "with a city), then check availability for a specific restaurant/date/party size, then "
+        "with a city, and with date, time and party_size so results come back bookable), then "
         "create_booking with one of the returned times. Dates and times are the restaurant's local time; "
-        "prices are in the city's currency."
+        "prices are in the city's currency. Allergen facts come only from allergen_safe and allergen_notes."
     ),
 )
 
@@ -73,41 +73,76 @@ async def search_restaurants(
         ),
     ] = None,
     dietary: Annotated[
-        list[str] | None, Field(description="Required dietary options: vegetarian, vegan, gluten_free, halal, kosher")
+        list[str] | None,
+        Field(description="Dietary options every result must offer: " + ", ".join(DIETARY)),
+    ] = None,
+    allergies: Annotated[
+        list[str] | None,
+        Field(
+            description="Allergens the kitchen must reliably keep out of a dish (its allergen_safe list): "
+            + ", ".join(ALLERGENS)
+            + ". Use gluten for coeliac disease: stricter than dietary gluten_free, which only means "
+            "gluten-free dishes exist, possibly from a shared kitchen."
+        ),
+    ] = None,
+    max_spice_level: Annotated[
+        int | None,
+        Field(ge=0, le=3, description="0 not spicy, 1 mild, 2 some spicy dishes, 3 spice-forward. 1 = 'nothing spicy'."),
+    ] = None,
+    include_nearby: Annotated[
+        bool,
+        Field(
+            description="With area: also include neighbouring areas, ranked after the area itself, nearest first. "
+            "Use it whenever the area alone may be thin, so one search is enough."
+        ),
+    ] = False,
+    exclude_restaurant_ids: Annotated[
+        list[str] | None,
+        Field(description="Leave these out, e.g. places the member declined or wants somewhere new instead of"),
     ] = None,
     party_size: PartySize | None = None,
     date: Annotated[
-        dt.date | None, Field(description="If set with time, each result includes open times near it")
+        dt.date | None,
+        Field(
+            description="With a date, only restaurants with a table are returned (fully booked matches are just "
+            "named), each with open times near `time`"
+        ),
     ] = None,
     time: Annotated[str | None, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="Preferred time HH:MM")] = None,
     limit: Annotated[int, Field(ge=1, le=10)] = 5,
 ) -> dict[str, Any]:
-    """Search one city's restaurants. Returns the best matches, optionally with availability."""
+    """Search one city's restaurants: the best matches, and with a date only those with a table.
+
+    Each result has dietary_options, allergen_safe, allergen_notes and spice. Filter with every need you
+    know (dietary, allergies, spice, area with include_nearby, date/time/party_size) in one call.
+    """
     service = svc()
-    matches = service.search(
-        city=city,
-        query=query,
-        cuisine=cuisine,
-        area=area,
-        min_price_level=min_price_level,
-        max_price_level=max_price_level,
-        tags=tags,
-        dietary=dietary,
-        party_size=party_size,
-    )
-    results = []
-    for r in matches[:limit]:
-        item = service.summary(r)
-        if date is not None:
-            try:
-                avail = await service.availability(r["id"], date, party_size or 2, time)
-            except BookingError as exc:
-                raise ToolError(str(exc)) from exc
-            item["available_times"] = avail["available_times"]
-            if avail["note"]:
-                item["availability_note"] = avail["note"]
-        results.append(item)
-    return {"count": len(results), "total_matches": len(matches), "results": results}
+    try:
+        matches = service.search(
+            city=city,
+            query=query,
+            cuisine=cuisine,
+            area=area,
+            min_price_level=min_price_level,
+            max_price_level=max_price_level,
+            tags=tags,
+            dietary=dietary,
+            allergies=allergies,
+            max_spice_level=max_spice_level,
+            party_size=party_size,
+            include_nearby=include_nearby,
+            exclude_ids=exclude_restaurant_ids,
+        )
+        if date is None:
+            results = [service.summary(r) for r in matches[:limit]]
+            return {"count": len(results), "total_matches": len(matches), "results": results}
+        results, full = await service.search_available(matches, date, party_size or 2, time, limit)
+    except BookingError as exc:
+        raise ToolError(str(exc)) from exc
+    payload: dict[str, Any] = {"count": len(results), "total_matches": len(matches), "results": results}
+    if full:
+        payload["fully_booked"] = [f"{r['name']} ({r['area']})" for r in full]
+    return payload
 
 
 @mcp.tool()

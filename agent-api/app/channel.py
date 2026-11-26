@@ -43,13 +43,16 @@ class TurnChannel:
     def _mark_sent(self) -> None:
         self._last_sent = time.monotonic()
 
-    async def post(self, text: str) -> Message | None:
-        """Persist an assistant message and push it to any streaming client."""
+    async def post(self, text: str, kind: str = "message") -> Message | None:
+        """Persist an assistant message and push it to any streaming client.
+
+        ``kind="status"`` marks progress lines, which are left out of later conversations' context.
+        """
         text = text.strip()
         if not text:
             return None
         async with self._post_lock:
-            message = await self.store.add_message(self.conversation_id, "assistant", text)
+            message = await self.store.add_message(self.conversation_id, "assistant", text, kind=kind)
             self._mark_sent()
             self.emit("message.created", MessageOut.of(message).model_dump())
             return message
@@ -77,7 +80,7 @@ class TurnChannel:
             if self._closed:
                 return
             try:
-                await self.post(self._holding.next(self.activity))
+                await self.post(self._holding.next(self.activity), kind="status")
             except Exception:  # a failed holding message must never break the turn
                 log.exception("Failed to post holding message")
                 self._mark_sent()
