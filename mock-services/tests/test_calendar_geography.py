@@ -36,16 +36,15 @@ def test_trips_are_contiguous_and_never_go_home():
                 assert trip_on(rules.seed, member, trip.start + timedelta(days=d)) == trip
 
 
-def test_trips_reach_covered_and_uncovered_cities():
+def test_trips_only_go_to_covered_cities():
     rules = load_rules()
-    covered, uncovered = set(), set()
+    destinations = set()
     for i in range(80):
         for offset in range(0, DAYS):
             trip = trip_on(rules.seed, f"member-{i}", START + timedelta(days=offset))
             if trip:
-                (covered if trip.destination.covered else uncovered).add(trip.destination.name)
-    assert covered == {c.name for c in CITIES.values()}
-    assert len(uncovered) >= 5
+                destinations.add(trip.destination.name)
+    assert destinations == {c.name for c in CITIES.values()}
 
 
 def test_trip_days_show_where_the_member_is():

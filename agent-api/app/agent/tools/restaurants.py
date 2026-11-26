@@ -28,6 +28,7 @@ ACTIVITY: dict[str, Activity] = {
     "check_availability": "availability",
     "create_booking": "booking",
     "cancel_booking": "booking",
+    "modify_booking": "booking",
     "list_bookings": "bookings",
 }
 LIST_TTL_SECONDS = 600
@@ -135,6 +136,13 @@ class RestaurantCatalog:
                 self._definitions = sorted(listed.tools, key=lambda t: t.name)
                 self._fetched_at = time.monotonic()
             return self._definitions
+
+    async def warm(self) -> None:
+        """List the tools now, so the first turn after start-up doesn't wait for the MCP handshake."""
+        try:
+            await self._definitions_cached()
+        except Exception:
+            log.warning("Could not pre-load restaurant MCP tools; the first turn will retry", exc_info=True)
 
     async def tools(self, session: RestaurantSession) -> list[Tool]:
         try:

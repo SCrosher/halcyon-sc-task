@@ -37,6 +37,7 @@ class Event:
     location: str | None
     category: str
     source: str  # "generated" | "member"
+    notes: str | None = None  # e.g. a booking reference on an event the member (or agent) added
 
     def to_dict(self) -> dict:
         return asdict(self)

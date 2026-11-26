@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx2
 
@@ -96,14 +97,20 @@ class TurnRunner:
             channel.activity = "starting" if call == 0 else "composing"
             state = _Iteration()
             response = await self._call_model(history + turn, definitions, by_name, state, channel)
-            turn.append({"role": "assistant", "content": response.content})
             tool_uses = [b for b in response.content if b.get("type") == "tool_use"]
+            content = response.content
+            if tool_uses:
+                # Text beside a tool call is the model thinking aloud ("I need the city: check diary
+                # first"); the member only sees the status message. Keeping it out of the transcript
+                # also stops the model believing the member saw it, and copying the habit.
+                content = [b for b in content if b.get("type") != "text"]
+            turn.append({"role": "assistant", "content": content})
 
             if response.stop_reason == "refusal":
                 await channel.post(REFUSAL)
                 return "ok"
             if tool_uses:
-                await self._flush(state, channel)
+                self._discard_draft(state, channel)
                 if response.stop_reason == "max_tokens":
                     # A truncated tool input parses as a valid partial object; don't run it.
                     results = [
@@ -128,11 +135,9 @@ class TurnRunner:
             channel.delta(text)
 
         async def on_tool_use(block: dict[str, Any]) -> None:
-            # Post progress the moment the call is generated, before the tool runs.
-            if state.text:
-                await self._flush(state, channel)  # the model wrote its own progress text
-                state.status_posted = True
-                return
+            # Post progress the moment the call is generated, before the tool runs. Any text the
+            # model streamed before the call is never sent: only the curated status message is.
+            self._discard_draft(state, channel)
             tool = by_name.get(block.get("name", ""))
             status = (block.get("input") or {}).get(STATUS_FIELD)
             if tool and tool.user_facing and isinstance(status, str) and not state.status_posted:
@@ -160,10 +165,22 @@ class TurnRunner:
         raise AssertionError("unreachable")
 
     @staticmethod
-    async def _flush(state: _Iteration, channel: TurnChannel) -> None:
-        text = state.take_text()
-        if text.strip():
-            await channel.post(text)
+    def _discard_draft(state: _Iteration, channel: TurnChannel) -> None:
+        """Drop streamed-but-unposted text and tell a streaming client to clear its draft."""
+        if state.take_text():
+            channel.reset_reply()
+
+    async def warm_up(self, member_id: str) -> None:
+        """Generate the member's calendar ahead of their first diary lookup.
+
+        First use generates and writes a few hundred events; doing that while the model makes
+        its first call keeps it off the member's wait. Best effort: the tool call still works
+        (and generates on demand) if this fails.
+        """
+        try:
+            await self.mock_http.get(f"/v1/calendars/{quote(member_id, safe='')}")
+        except Exception:
+            log.warning("Calendar warm-up failed for member %s", member_id, exc_info=True)
 
     async def _run_tool(
         self, block: dict[str, Any], by_name: dict[str, Tool], ctx: TurnContext, channel: TurnChannel

@@ -21,7 +21,10 @@ async def test_tools_are_listed(restaurants):
         "create_booking",
         "list_bookings",
         "cancel_booking",
+        "modify_booking",
     }
+    modify_schema = tools["modify_booking"].input_schema
+    assert set(modify_schema["required"]) == {"booking_id", "member_id"}
     booking_schema = tools["create_booking"].input_schema
     required = {"restaurant_id", "date", "time", "party_size", "member_id", "member_name"}
     assert required <= set(booking_schema["required"])

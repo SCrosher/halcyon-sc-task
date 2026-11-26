@@ -163,6 +163,7 @@ class CalendarService:
             location=row["location"],
             category=row["category"],
             source=row["source"],
+            notes=row["notes"],
         )
 
     async def events(self, member_id: str, start: date, end: date) -> list[Event]:
@@ -209,7 +210,16 @@ class CalendarService:
     ) -> Event:
         await self.ensure(member_id, day, day)
         event = Event(
-            str(uuid.uuid4()), title, day.isoformat(), start_time, end_time, all_day, location, category, "member"
+            str(uuid.uuid4()),
+            title,
+            day.isoformat(),
+            start_time,
+            end_time,
+            all_day,
+            location,
+            category,
+            "member",
+            notes,
         )
         await self.db.execute(
             f"INSERT INTO calendar_events ({', '.join(EVENT_COLUMNS)}) VALUES ({', '.join('?' * len(EVENT_COLUMNS))})",
@@ -229,6 +239,47 @@ class CalendarService:
             ),
         )
         return event
+
+    async def get_event(self, member_id: str, event_id: str) -> Event | None:
+        rows = (
+            await self.db.execute("SELECT * FROM calendar_events WHERE member_id = ? AND id = ?", (member_id, event_id))
+        ).rows
+        return self._event(rows[0]) if rows else None
+
+    async def update_event(
+        self,
+        member_id: str,
+        event_id: str,
+        *,
+        title: str,
+        day: date,
+        start_time: str | None,
+        end_time: str | None,
+        all_day: bool,
+        location: str | None,
+        notes: str | None,
+        category: str,
+    ) -> Event | None:
+        """Replace an event's fields (the caller merges and validates). Keeps its id and source."""
+        # Moving an event may land outside the stored range; generate that first so it stays consistent.
+        await self.ensure(member_id, day, day)
+        result = await self.db.execute(
+            "UPDATE calendar_events SET title = ?, date = ?, start_time = ?, end_time = ?, all_day = ?, "
+            "location = ?, notes = ?, category = ? WHERE member_id = ? AND id = ?",
+            (
+                title,
+                day.isoformat(),
+                start_time,
+                end_time,
+                1 if all_day else 0,
+                location,
+                notes,
+                category,
+                member_id,
+                event_id,
+            ),
+        )
+        return await self.get_event(member_id, event_id) if result.changes else None
 
     async def delete_event(self, member_id: str, event_id: str) -> bool:
         result = await self.db.execute(

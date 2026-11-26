@@ -27,12 +27,22 @@ async def _request(ctx: TurnContext, method: str, path: str, **kwargs: Any) -> A
         except ValueError:
             detail = response.text[:200]
         raise ToolFailure(f"Calendar service error {response.status_code}: {detail}")
-    return response.json()
+    return response.json() if response.content else None  # DELETE answers 204 with no body
 
 
 def _compact(event: dict[str, Any]) -> dict[str, Any]:
-    keep = ("title", "date", "start_time", "end_time", "all_day", "location", "category")
-    return {k: event[k] for k in keep if event.get(k) not in (None, False)}
+    keep = ("title", "date", "start_time", "end_time", "all_day", "location", "category", "notes")
+    # event_id lets the model update or remove the event; notes hold a booking's reference.
+    compact = {"event_id": event["id"]} if event.get("id") else {}
+    compact.update({k: event[k] for k in keep if event.get(k) not in (None, False)})
+    if "date" in compact:
+        compact["weekday"] = _weekday(compact["date"])
+    return compact
+
+
+def _weekday(iso: str) -> str:
+    # Spelled out so the model never has to work out a weekday (it gets them wrong).
+    return date.fromisoformat(iso).strftime("%A")
 
 
 def _parse_date(value: str, field: str) -> date:
@@ -63,6 +73,7 @@ async def _check(args: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     )
     return {
         "date": data["date"],
+        "weekday": _weekday(data["date"]),
         "window": f"{data['start_time']}-{data['end_time']}",
         "free": data["free"],
         "conflicts": [_compact(e) for e in data["conflicts"]],
@@ -84,6 +95,27 @@ async def _add(args: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
     data = await _request(ctx, "POST", "/events", json=body)
     return {"added": True, "event": _compact(data["event"])}
 
+
+def _event_path(event_id: str) -> str:
+    return f"/events/{quote(event_id, safe='')}"
+
+
+async def _update(args: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
+    changes = {k: v for k, v in args.items() if k != "event_id"}
+    if not changes:
+        raise ToolFailure("Nothing to change: pass at least one field to update")
+    if "date" in changes:
+        _parse_date(changes["date"], "date")
+    data = await _request(ctx, "PATCH", _event_path(args["event_id"]), json=changes)
+    return {"updated": True, "event": _compact(data["event"])}
+
+
+async def _remove(args: dict[str, Any], ctx: TurnContext) -> dict[str, Any]:
+    await _request(ctx, "DELETE", _event_path(args["event_id"]))
+    return {"removed": True, "event_id": args["event_id"]}
+
+
+EVENT_ID = {"type": "string", "description": "event_id from calendar_list_events or calendar_check_availability"}
 
 CALENDAR_TOOLS = [
     Tool(
@@ -129,5 +161,39 @@ CALENDAR_TOOLS = [
         source="calendar",
         activity="calendar",
         handler=_add,
+    ),
+    Tool(
+        name="calendar_update_event",
+        description=(
+            "Change an existing diary event; fields you leave out stay as they are. Use to keep a booking's "
+            "entry in step after modify_booking (new date or time, party size in the title), or when the "
+            "member asks to change an event. Only after the member has asked for or confirmed the change."
+        ),
+        parameters=object_schema(
+            {
+                "event_id": EVENT_ID,
+                "title": {"type": "string", "minLength": 1, "maxLength": 200},
+                "date": DATE,
+                "start_time": TIME,
+                "end_time": TIME,
+                "location": {"type": "string", "maxLength": 300},
+                "notes": {"type": "string", "maxLength": 1000},
+            },
+            ["event_id"],
+        ),
+        source="calendar",
+        activity="calendar",
+        handler=_update,
+    ),
+    Tool(
+        name="calendar_remove_event",
+        description=(
+            "Remove an event from the member's diary, e.g. a cancelled booking's entry. Only after the member "
+            "has asked for or confirmed it; it can't be undone."
+        ),
+        parameters=object_schema({"event_id": EVENT_ID}, ["event_id"]),
+        source="calendar",
+        activity="calendar",
+        handler=_remove,
     ),
 ]

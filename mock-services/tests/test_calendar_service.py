@@ -68,3 +68,78 @@ async def test_api_requires_the_token_and_bounds_dates(calendar):
         assert ok.status_code == 200
         far = await client.get(f"/v1/calendars/{MEMBER}/events", params={"start": "1900-01-01"}, headers=auth)
         assert far.status_code == 422 and "between" in far.json()["detail"]
+
+
+async def _dinner(calendar):
+    return await calendar.add_event(
+        MEMBER,
+        title="Dinner at Verdant (2 people)",
+        day=TODAY,
+        start_time="19:00",
+        end_time="21:00",
+        all_day=False,
+        location="Soho",
+        notes="HC-ABC123",
+        category="dining",
+    )
+
+
+async def test_events_can_be_fetched_updated_and_deleted(calendar):
+    event = await _dinner(calendar)
+    assert (await calendar.get_event(MEMBER, event.id)).notes == "HC-ABC123"
+    assert await calendar.get_event("someone-else", event.id) is None
+
+    moved = await calendar.update_event(
+        MEMBER,
+        event.id,
+        title="Dinner at Verdant (4 people)",
+        day=TODAY + timedelta(days=1),
+        start_time="20:00",
+        end_time="22:00",
+        all_day=False,
+        location="Soho",
+        notes="HC-ABC123",
+        category="dining",
+    )
+    assert (moved.id, moved.date, moved.start_time, moved.source) == (
+        event.id,
+        (TODAY + timedelta(days=1)).isoformat(),
+        "20:00",
+        "member",
+    )
+    assert event.id not in [e.id for e in await calendar.events(MEMBER, TODAY, TODAY)]
+
+    assert await calendar.delete_event(MEMBER, event.id)
+    assert await calendar.get_event(MEMBER, event.id) is None
+    assert not await calendar.delete_event(MEMBER, event.id)
+
+
+async def test_api_patches_and_deletes_events(calendar):
+    app = create_app(Settings(_env_file=None, mock_services_token="secret"))
+    app.state.calendar = calendar
+    event = await _dinner(calendar)
+    auth = {"Authorization": "Bearer secret"}
+    url = f"/v1/calendars/{MEMBER}/events/{event.id}"
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://test") as client:
+        patched = await client.patch(url, json={"start_time": "19:30", "end_time": "21:30"}, headers=auth)
+        assert patched.status_code == 200
+        body = patched.json()["event"]
+        # Only the given fields change.
+        assert (body["start_time"], body["title"], body["notes"]) == ("19:30", event.title, "HC-ABC123")
+
+        backwards = await client.patch(url, json={"end_time": "19:00"}, headers=auth)
+        assert backwards.status_code == 422 and "end_time must be after start_time" in backwards.json()["detail"]
+
+        all_day = await client.patch(url, json={"all_day": True}, headers=auth)
+        assert all_day.json()["event"]["start_time"] is None
+        timed_again = await client.patch(url, json={"start_time": "18:00", "end_time": "19:00"}, headers=auth)
+        assert timed_again.json()["event"]["all_day"] is False
+
+        far = await client.patch(url, json={"date": "1900-01-01"}, headers=auth)
+        assert far.status_code == 422
+
+        assert (await client.get(url, headers=auth)).status_code == 200
+        assert (await client.delete(url, headers=auth)).status_code == 204
+        assert (await client.get(url, headers=auth)).status_code == 404
+        assert (await client.patch(url, json={"title": "x"}, headers=auth)).status_code == 404
+        assert (await client.delete(url, headers=auth)).status_code == 404

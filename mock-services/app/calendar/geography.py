@@ -2,10 +2,10 @@
 
 The trait library is deliberately place-free, so location comes from here. Every member
 gets a home city (one of the covered cities) and, per fortnight-long block of the
-calendar, maybe one trip of 2-5 days. Trips go mostly to the other covered cities, but
-sometimes to cities the restaurant directory doesn't cover, so the agent has to handle
-both. Everything is derived from the seed, member id and date, so any day can be
-generated on its own, in any order, with the same result.
+calendar, maybe one trip of 2-5 days. Trips only go to the other covered cities, so
+whatever the diary says, the agent can book there (members can still ask about other
+cities themselves). Everything is derived from the seed, member id and date, so any day
+can be generated on its own, in any order, with the same result.
 
 On trip days the member's usual routine is replaced by the trip: an all-day
 "<city>" travel event whose location is the city, flights out and home, and (for work
@@ -35,24 +35,10 @@ class Place:
     covered: bool  # has restaurants in the directory
 
 
+# Trip destinations and weights. Only covered cities, so a diary never sends the member
+# somewhere the demo can't book.
 PLACES: list[tuple[Place, float]] = [
-    *((Place(c.name, c.region, f"{c.airport}, {c.name}", True), 3.0) for c in CITIES.values()),
-    *(
-        (Place(name, region, f"{name} airport", False), 1.0)
-        for name, region in (
-            ("Tokyo", "asia"),
-            ("Singapore", "asia"),
-            ("Dubai", "asia"),
-            ("Berlin", "europe"),
-            ("Barcelona", "europe"),
-            ("Edinburgh", "europe"),
-            ("Milan", "europe"),
-            ("Lisbon", "europe"),
-            ("Chicago", "americas"),
-            ("San Francisco", "americas"),
-            ("Toronto", "americas"),
-        )
-    ),
+    (Place(c.name, c.region, f"{c.airport}, {c.name}", True), 1.0) for c in CITIES.values()
 ]
 
 

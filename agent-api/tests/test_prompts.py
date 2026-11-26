@@ -14,10 +14,10 @@ def memory(category: str, content: str) -> Memory:
 
 def test_turn_context_shows_each_city_clock():
     context = turn_context(JANE, [], NOW)
-    assert "London Thu 26 Nov 23:30" in context
-    assert "Paris Fri 27 Nov 00:30" in context
-    assert "New York Thu 26 Nov 18:30" in context
-    assert "Los Angeles Thu 26 Nov 15:30" in context
+    assert "London Thu 26 Nov 2026 23:30" in context
+    assert "Paris Fri 27 Nov 2026 00:30" in context
+    assert "New York Thu 26 Nov 2026 18:30" in context
+    assert "Los Angeles Thu 26 Nov 2026 15:30" in context
 
 
 def test_turn_context_lists_only_unknown_topics():

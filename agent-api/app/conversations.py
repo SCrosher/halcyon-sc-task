@@ -49,6 +49,7 @@ class ConversationService:
             conversation = await self.store.create_conversation(conversation_id, member.id)
             if conversation.member_id != member.id:  # another member created it first
                 raise ConversationError(409, "This conversation belongs to a different member.")
+            self._background(self.runner.warm_up(member.id))
 
         duplicate = await self._duplicate(conversation_id, body.message_id)
         if duplicate:
@@ -74,10 +75,14 @@ class ConversationService:
             self._release(conversation_id)
             raise
         channel.start()  # the 12-second clock starts when the member's message is accepted
-        task = asyncio.create_task(self._process(member, conversation_id, body.text, channel))
+        self._background(self._process(member, conversation_id, body.text, channel))
+        return Accepted(message_id=message.id, conversation_id=conversation_id, status="accepted"), channel
+
+    def _background(self, coro) -> None:
+        """Run a task that ``drain`` waits for on shutdown."""
+        task = asyncio.create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
-        return Accepted(message_id=message.id, conversation_id=conversation_id, status="accepted"), channel
 
     async def _duplicate(self, conversation_id: str, message_id: str) -> Accepted | None:
         existing = await self.store.get_message(message_id)

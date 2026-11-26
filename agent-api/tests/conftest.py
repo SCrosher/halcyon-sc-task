@@ -183,6 +183,15 @@ def calendar_transport(log: list[httpx2.Request]) -> httpx2.MockTransport:
             )
         if request.url.path.endswith("/events") and request.method == "POST":
             return httpx2.Response(201, json={"event": {"id": "new", **json.loads(request.content)}})
+        if "/events/" in request.url.path:
+            event_id = request.url.path.rsplit("/", 1)[1]
+            if event_id == "missing":
+                return httpx2.Response(404, json={"detail": "Event not found"})
+            if request.method == "DELETE":
+                return httpx2.Response(204)
+            if request.method == "PATCH":
+                stored = {"id": event_id, "title": "Dinner at Kaito", "date": "2026-12-03", "notes": "HC-ABC123"}
+                return httpx2.Response(200, json={"event": {**stored, **json.loads(request.content)}})
         return httpx2.Response(200, json={"start": "2026-12-03", "end": "2026-12-03", "events": []})
 
     return httpx2.MockTransport(handler)

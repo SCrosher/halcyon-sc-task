@@ -53,7 +53,10 @@ async def test_tool_turn_posts_status_message_then_reply(make_harness):
         "You've got yoga until 19:30. The Gilded Larch has 20:00 - shall I book it?",
     ]
     # Calendar called for this member; restaurant tool got the member injected, not from the model.
-    assert h.calendar_requests[0].url.path == f"/v1/calendars/{JANE['id']}/availability"
+    assert [r.url.path for r in h.calendar_requests] == [
+        f"/v1/calendars/{JANE['id']}",  # warm-up when the conversation starts
+        f"/v1/calendars/{JANE['id']}/availability",
+    ]
     assert h.catalog.calls == [{"cuisine": "French", "member_id": JANE["id"]}]
 
     transcript = h.store.transcripts["c1"]
@@ -105,7 +108,7 @@ async def test_invalid_tool_input_is_returned_as_error(make_harness):
     await h.wait_idle("c1")
     result = h.store.transcripts["c1"][3]["content"][0]
     assert result["is_error"] and "start_time" in result["content"]
-    assert h.calendar_requests == []
+    assert [r.url.path for r in h.calendar_requests] == [f"/v1/calendars/{JANE['id']}"]  # warm-up only
 
 
 async def test_holding_message_when_quiet_for_too_long(make_harness):
@@ -268,3 +271,107 @@ async def test_transcript_save_failure_does_not_break_the_turn(make_harness):
     assert events[-1] == ("turn.completed", {"status": "ok"})
     assert h.store.texts("c1") == ["Hello!"]
     assert (await h.store.get_conversation("c1")).status == "idle"
+
+
+async def test_text_beside_a_tool_call_never_reaches_the_member(make_harness):
+    h = await make_harness(
+        [
+            Step(
+                [
+                    text("Friday is 27 Nov. I need the city: check diary first."),
+                    tool_use(
+                        "calendar_list_events",
+                        status_message="Allow me a moment to check your diary…",
+                        start_date="2026-11-27",
+                    ),
+                ]
+            ),
+            Step([text("For your evening in Paris, may I suggest Le Clos?")]),
+        ]
+    )
+    events = await stream_events(h, "c1", "dinner friday?")
+    names = [e for e, _ in events]
+    assert names.index("reply.reset") < names.index("message.created", 1)
+    assert h.store.texts("c1") == [
+        "Allow me a moment to check your diary…",
+        "For your evening in Paris, may I suggest Le Clos?",
+    ]
+    # Kept out of the transcript too, so the model doesn't think the member saw it.
+    assert "check diary first" not in json.dumps(h.store.transcripts["c1"])
+    assert_valid_transcript(h.store.transcripts["c1"])
+
+
+async def test_new_conversation_warms_the_calendar_once(make_harness):
+    h = await make_harness([Step([text("Good evening.")]), Step([text("Certainly.")])])
+    await h.client.post("/conversations/c1/messages", json=body("hello"))
+    await h.wait_idle("c1")
+    await h.client.post("/conversations/c1/messages", json=body("thanks"))
+    await h.wait_idle("c1")
+    assert [r.url.path for r in h.calendar_requests] == [f"/v1/calendars/{JANE['id']}"]
+
+
+async def test_calendar_events_can_be_updated_and_removed(make_harness):
+    h = await make_harness(
+        [
+            Step(
+                [
+                    tool_use(
+                        "calendar_update_event",
+                        status_message="Updating your diary…",
+                        event_id="e1",
+                        start_time="20:00",
+                        end_time="22:00",
+                    ),
+                    tool_use("calendar_remove_event", status_message="Tidying your diary…", event_id="e2"),
+                    tool_use("calendar_remove_event", status_message="One moment…", event_id="missing"),
+                    tool_use("calendar_update_event", status_message="One moment…", event_id="e3"),
+                ]
+            ),
+            Step([text("Done - your diary is up to date.")]),
+        ]
+    )
+    await h.client.post("/conversations/c1/messages", json=body("move dinner to 8 and drop the other one"))
+    await h.wait_idle("c1")
+
+    edits = [(r.method, r.url.path) for r in h.calendar_requests if "/events/" in r.url.path]
+    base = f"/v1/calendars/{JANE['id']}/events"
+    assert edits == [("PATCH", f"{base}/e1"), ("DELETE", f"{base}/e2"), ("DELETE", f"{base}/missing")]
+    assert json.loads(h.calendar_requests[1].content) == {"start_time": "20:00", "end_time": "22:00"}
+
+    updated, removed, missing, empty = h.store.transcripts["c1"][3]["content"]
+    assert not updated.get("is_error")
+    assert json.loads(updated["content"])["event"] == {
+        "event_id": "e1",
+        "title": "Dinner at Kaito",
+        "date": "2026-12-03",
+        "weekday": "Thursday",
+        "start_time": "20:00",
+        "end_time": "22:00",
+        "notes": "HC-ABC123",
+    }
+    assert json.loads(removed["content"]) == {"removed": True, "event_id": "e2"}
+    assert missing["is_error"] and "404" in missing["content"]
+    assert empty["is_error"] and "Nothing to change" in empty["content"]
+
+
+async def test_listed_events_carry_their_id(make_harness):
+    h = await make_harness(
+        [
+            Step(
+                [
+                    tool_use(
+                        "calendar_check_availability",
+                        status_message="Checking…",
+                        date="2026-12-03",
+                        start_time="18:00",
+                        end_time="20:00",
+                    )
+                ]
+            ),
+            Step([text("You have yoga then.")]),
+        ]
+    )
+    await h.client.post("/conversations/c1/messages", json=body("am I free thursday at 6?"))
+    await h.wait_idle("c1")
+    result = json.loads(h.store.transcripts["c1"][3]["content"][0]["content"])
+    assert result["conflicts"][0]["event_id"] == "e1"

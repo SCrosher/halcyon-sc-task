@@ -48,10 +48,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             timeout=httpx2.Timeout(20.0),
         )
         llm = ClaudeClient(settings)
-        runner = TurnRunner(settings, store, llm, mock_http, RestaurantCatalog(settings))
+        catalog = RestaurantCatalog(settings)
+        runner = TurnRunner(settings, store, llm, mock_http, catalog)
         app.state.store = store
         app.state.conversations = ConversationService(settings, store, runner)
+        catalog_warm_up = asyncio.create_task(catalog.warm())
         yield
+        await catalog_warm_up
         await app.state.conversations.drain()
         if background_writes:
             await asyncio.gather(*background_writes, return_exceptions=True)

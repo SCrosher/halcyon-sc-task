@@ -175,8 +175,40 @@ async def cancel_booking(
     booking_id: Annotated[str, Field(description="booking_id or reference (HC-XXXXXX)")],
     member_id: str,
 ) -> dict[str, Any]:
-    """Cancel one of the member's bookings."""
+    """Cancel one of the member's upcoming bookings. Only call after the member has confirmed the cancellation."""
     try:
         return await svc().cancel_booking(booking_id, member_id)
+    except BookingError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@mcp.tool()
+async def modify_booking(
+    booking_id: Annotated[str, Field(description="booking_id or reference (HC-XXXXXX)")],
+    member_id: str,
+    date: Annotated[dt.date | None, Field(description="New date, YYYY-MM-DD; omit to keep")] = None,
+    time: Annotated[
+        str | None, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="New time HH:MM; omit to keep")
+    ] = None,
+    party_size: Annotated[int | None, Field(ge=1, le=20, description="New number of guests; omit to keep")] = None,
+    occasion: Annotated[str | None, Field(description="Replaces the occasion; omit to keep")] = None,
+    special_requests: Annotated[str | None, Field(description="Replaces the special requests; omit to keep")] = None,
+) -> dict[str, Any]:
+    """Change an upcoming booking at the same restaurant: date, time, party size, occasion or requests.
+
+    Keeps the same reference. If the new slot has no table, the booking is left unchanged. To move to a
+    different restaurant, create_booking there first, then cancel_booking the old one. Only call after the
+    member has confirmed the change. The result includes the previous date, time and party size.
+    """
+    try:
+        return await svc().modify_booking(
+            booking_id,
+            member_id,
+            day=date,
+            time=time,
+            party_size=party_size,
+            occasion=occasion,
+            special_requests=special_requests,
+        )
     except BookingError as exc:
         raise ToolError(str(exc)) from exc

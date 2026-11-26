@@ -346,15 +346,89 @@ class RestaurantService:
 
         return [self._booking_view(r) for r in rows if include_past or upcoming(r)]
 
-    async def cancel_booking(self, booking_id: str, member_id: str) -> dict[str, Any]:
+    async def _own_booking(self, booking_id: str, member_id: str) -> dict[str, Any]:
         rows = (
             await self.db.execute("SELECT * FROM bookings WHERE id = ? OR reference = ?", (booking_id, booking_id))
         ).rows
         if not rows or rows[0]["member_id"] != member_id:
-            raise BookingError("Booking not found for this member.")
-        row = rows[0]
+            raise BookingError("Booking not found for this member. Call list_bookings for their bookings.")
+        return rows[0]
+
+    def _require_upcoming(self, row: dict[str, Any], action: str) -> None:
+        r = self.restaurants.get(row["restaurant_id"])
+        today = self._today(city_of(r) if r else CITIES["london"])
+        if row["date"] < today.isoformat():
+            raise BookingError(f"Booking {row['reference']} was on {row['date']}, in the past; it can't be {action}.")
+
+    async def cancel_booking(self, booking_id: str, member_id: str) -> dict[str, Any]:
+        row = await self._own_booking(booking_id, member_id)
         if row["status"] == "cancelled":
             return self._booking_view(row)
+        self._require_upcoming(row, "cancelled")
         await self.db.execute("UPDATE bookings SET status = 'cancelled' WHERE id = ?", (row["id"],))
         row["status"] = "cancelled"
         return self._booking_view(row)
+
+    async def modify_booking(
+        self,
+        booking_id: str,
+        member_id: str,
+        *,
+        day: date | None = None,
+        time: str | None = None,
+        party_size: int | None = None,
+        occasion: str | None = None,
+        special_requests: str | None = None,
+    ) -> dict[str, Any]:
+        """Change a confirmed booking in place (same restaurant, id and reference).
+
+        Fields left as None keep their current value. Moving to another restaurant is a new
+        booking plus a cancellation, not a modification.
+        """
+        row = await self._own_booking(booking_id, member_id)
+        if row["status"] != "confirmed":
+            raise BookingError(f"Booking {row['reference']} is {row['status']}; make a new booking instead.")
+        self._require_upcoming(row, "changed")
+        r = self.get(row["restaurant_id"])
+        new_day = day or date.fromisoformat(row["date"])
+        new_time = time or row["time"]
+        new_party = party_size if party_size is not None else int(row["party_size"])
+        if new_party < 1:
+            raise BookingError("party_size must be at least 1")
+        no_table = BookingError(
+            f"{r['name']} has no table for {new_party} at {new_time} on {new_day.isoformat()}; the booking is "
+            "unchanged. Call check_availability for open times."
+        )
+        self._validate_day(r, new_day)
+        if new_party > r["max_party_size"] or new_time not in self._service_slots(r, new_day):
+            raise no_table
+        # As in create_booking, the capacity check and the write are one statement. The booking's own
+        # tables are excluded, so changing only the requests (or shrinking the party) always fits.
+        allowed = r["tables_per_slot"] - self._baseline_tables_taken(r, new_day, new_time) - tables_needed(new_party)
+        result = await self.db.execute(
+            "UPDATE bookings SET date = ?, time = ?, party_size = ?, occasion = ?, special_requests = ? "
+            "WHERE id = ? AND status = 'confirmed' "
+            f"AND (SELECT COALESCE(SUM({TABLES_NEEDED_SQL}), 0) FROM bookings "
+            "WHERE restaurant_id = ? AND date = ? AND time = ? AND status = 'confirmed' AND id != ?) "
+            "<= CAST(? AS INTEGER)",
+            (
+                new_day.isoformat(),
+                new_time,
+                new_party,
+                occasion if occasion is not None else row["occasion"],
+                special_requests if special_requests is not None else row["special_requests"],
+                row["id"],
+                row["restaurant_id"],
+                new_day.isoformat(),
+                new_time,
+                row["id"],
+                allowed,
+            ),
+        )
+        if result.changes == 0:
+            raise no_table
+        updated = await self._own_booking(row["id"], member_id)
+        return {
+            **self._booking_view(updated),
+            "previous": {"date": row["date"], "time": row["time"], "party_size": int(row["party_size"])},
+        }

@@ -144,3 +144,66 @@ async def test_cancel_booking(restaurants):
     cancelled = await restaurants.cancel_booking(booking["reference"], "m1")
     assert cancelled["status"] == "cancelled"
     assert slot.time in {s.time for s in await restaurants.slots("verdant", THURSDAY, 2)}
+
+
+async def _book(restaurants, time, party=2, member="m1"):
+    return await restaurants.create_booking(
+        restaurant_id="verdant", day=THURSDAY, time=time, party_size=party, member_id=member, member_name="Jane Doe"
+    )
+
+
+async def test_modify_booking_moves_it_and_frees_the_old_slot(restaurants):
+    slots = await restaurants.slots("verdant", THURSDAY, 2)
+    first, second = slots[0], slots[-1]
+    booking = await _book(restaurants, first.time)
+
+    with pytest.raises(BookingError, match="not found"):
+        await restaurants.modify_booking(booking["reference"], "someone-else", time=second.time)
+
+    moved = await restaurants.modify_booking(
+        booking["reference"], "m1", time=second.time, party_size=3, special_requests="Window table"
+    )
+    assert (moved["reference"], moved["time"], moved["party_size"]) == (booking["reference"], second.time, 3)
+    assert moved["special_requests"] == "Window table"
+    assert moved["previous"] == {"date": THURSDAY.isoformat(), "time": first.time, "party_size": 2}
+    left = {s.time: s.tables_left for s in await restaurants.slots("verdant", THURSDAY, 2)}
+    assert left[first.time] == first.tables_left
+    assert left.get(second.time, 0) == second.tables_left - 1
+
+    # Fields not passed are kept.
+    again = await restaurants.modify_booking(booking["booking_id"], "m1", occasion="birthday")
+    assert (again["time"], again["special_requests"], again["occasion"]) == (second.time, "Window table", "birthday")
+
+
+async def test_modify_booking_into_a_full_slot_leaves_it_unchanged(restaurants):
+    slots = await restaurants.slots("verdant", THURSDAY, 2)
+    mine, full = slots[0], slots[1]
+    booking = await _book(restaurants, mine.time)
+    for _ in range(full.tables_left):
+        await _book(restaurants, full.time, member="m2")
+
+    with pytest.raises(BookingError, match="unchanged"):
+        await restaurants.modify_booking(booking["reference"], "m1", time=full.time)
+    with pytest.raises(BookingError, match="unchanged"):
+        await restaurants.modify_booking(booking["reference"], "m1", time="03:00")
+    [kept] = await restaurants.list_bookings("m1")
+    assert (kept["time"], kept["status"]) == (mine.time, "confirmed")
+    # Changing only the requests never needs a new table.
+    assert (await restaurants.modify_booking(booking["reference"], "m1", special_requests="Quiet"))["time"] == mine.time
+
+
+async def test_cancelled_and_past_bookings_cannot_be_changed(restaurants, d1):
+    fake, _ = d1
+    slot = (await restaurants.slots("verdant", THURSDAY, 2))[0]
+    cancelled = await _book(restaurants, slot.time)
+    await restaurants.cancel_booking(cancelled["reference"], "m1")
+    with pytest.raises(BookingError, match="cancelled"):
+        await restaurants.modify_booking(cancelled["reference"], "m1", party_size=3)
+
+    past = await _book(restaurants, slot.time)
+    last_week = (TODAY - timedelta(days=3)).isoformat()
+    fake.conn.execute("UPDATE bookings SET date = ? WHERE id = ?", (last_week, past["booking_id"]))
+    with pytest.raises(BookingError, match="in the past"):
+        await restaurants.modify_booking(past["reference"], "m1", party_size=3)
+    with pytest.raises(BookingError, match="in the past"):
+        await restaurants.cancel_booking(past["reference"], "m1")
