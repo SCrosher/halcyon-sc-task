@@ -25,8 +25,8 @@ def test_turn_context_lists_only_unknown_topics():
     assert "Not yet known" in everything
     assert all(topic in everything for topic in GETTING_TO_KNOW.values())
 
-    some = turn_context(JANE, [memory("locations", "Lives in Paris."), memory("drinks", "Loves Chablis.")], NOW)
-    assert "home city" not in some and "favourite wines" not in some
+    some = turn_context(JANE, [memory("locations", "Lives in Paris."), memory("likes", "Loves Italian.")], NOW)
+    assert "home city" not in some and "favourite cuisines" not in some
     assert "dietary needs" in some
     assert "[id-locations] (locations) Lives in Paris." in some
 
@@ -36,6 +36,11 @@ def test_turn_context_lists_only_unknown_topics():
 
 def test_getting_to_know_topics_map_to_real_memory_categories():
     assert set(GETTING_TO_KNOW) <= set(CATEGORIES)
+
+
+def test_never_prompts_for_drink_preferences():
+    assert "drinks" not in GETTING_TO_KNOW
+    assert "wine" not in turn_context(JANE, [], NOW).lower()
 
 
 def test_system_prompt_names_every_covered_city():
