@@ -1,0 +1,200 @@
+{
+  "version": 2,
+  "seed": "halcyon-calendar-v2-5c81",
+  "generated_by": "claude-opus-5-5",
+  "notes": "A library of generic lifestyle traits that apply to anyone, anywhere: no cities, venues or regional specifics, and all times are local wall-clock times. Each member gets one trait from each core group (work, household, fitness, social) plus up to two extras, which combine into one calendar. Weekday daytimes are driven by the work trait; evenings and weekends by household, fitness and social traits, so a weeknight dinner request clashes with something often enough to be interesting but not always.",
+  "rules": { "max_events_per_day": 8, "placement_attempts": 4, "min_gap_min": 0 },
+  "vocab": [
+    { "key": "colleague", "values": ["Priya", "Tom", "Aisha", "Marcus", "Elena", "Callum", "Sofia", "Ben", "Hiro", "Nadia"] },
+    { "key": "friend", "values": ["Hannah", "Olu", "Grace", "Jamie", "Rosa", "Dev", "Lucy", "Matt", "Imogen", "Kofi", "Leila", "Ravi"] },
+    { "key": "client", "values": ["Halden & Co", "Brightwater", "Orrin Health", "Meridian", "Fenwick Lowe", "Northgate", "Tallis Energy", "Corvane"] },
+    { "key": "project", "values": ["Atlas", "Q1 planning", "pricing review", "brand refresh", "data migration", "board pack", "hiring plan", "website relaunch"] },
+    { "key": "kid", "values": ["Maya", "Leo", "Ava", "Noah"] },
+    { "key": "relative", "values": ["Mum", "Dad", "Gran", "Grandad"] },
+    { "key": "hobby", "values": ["Pottery", "Spanish", "Life drawing", "Photography", "Guitar", "Cooking", "Improv"] },
+    { "key": "course", "values": ["Economics", "Statistics", "Marketing", "Data Science", "History", "Biology"] }
+  ],
+  "trait_groups": [
+    {
+      "id": "work",
+      "label": "Work pattern",
+      "pick": [1, 1],
+      "traits": [
+        {
+          "id": "office_9_to_5",
+          "label": "Office-based, 9 to 5",
+          "weight": 1.4,
+          "patterns": [
+            { "id": "standup", "category": "work", "kind": "recurring", "days": [0, 1, 2, 3, 4], "probability": 0.9, "start": "09:15", "durations_min": [15], "titles": ["Team stand-up"], "locations": ["Office"] },
+            { "id": "meetings", "category": "work", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.9, "count": [2, 4], "window_start": "09:30", "window_end": "17:30", "durations_min": [30, 60], "titles": ["{project} sync", "1:1 with {colleague}", "Weekly planning", "Call with {client}", "Budget review", "Interview panel"], "locations": ["Office", "Video call"] },
+            { "id": "focus", "category": "work", "kind": "random", "days": [0, 1, 2, 3], "probability": 0.5, "window_start": "13:00", "window_end": "17:30", "durations_min": [90, 120], "titles": ["Focus time: {project}"], "locations": ["Office"] },
+            { "id": "team_lunch", "category": "work", "kind": "recurring", "days": [4], "probability": 0.25, "start": "12:30", "durations_min": [60], "titles": ["Team lunch"], "locations": ["Near the office"] }
+          ]
+        },
+        {
+          "id": "hybrid_worker",
+          "label": "Hybrid worker",
+          "weight": 1.3,
+          "patterns": [
+            { "id": "office_days", "category": "work", "kind": "random", "days": [1, 2, 3], "probability": 0.9, "count": [2, 4], "window_start": "09:30", "window_end": "17:30", "durations_min": [30, 60, 90], "titles": ["{project} workshop", "1:1 with {colleague}", "Team meeting", "Quarterly review", "Call with {client}"], "locations": ["Office"] },
+            { "id": "remote_days", "category": "work", "kind": "random", "days": [0, 4], "probability": 0.8, "count": [1, 2], "window_start": "09:30", "window_end": "17:00", "durations_min": [30, 45], "titles": ["{project} check-in", "Catch-up with {colleague}"], "locations": ["Video call"] },
+            { "id": "weekly_all_hands", "category": "work", "kind": "recurring", "days": [0], "probability": 0.85, "start": "10:00", "durations_min": [45], "titles": ["All-hands"], "locations": ["Video call"] }
+          ]
+        },
+        {
+          "id": "shift_worker",
+          "label": "Shift worker on a rota",
+          "weight": 0.7,
+          "patterns": [
+            { "id": "early_shift", "category": "work", "kind": "recurring", "days": [0, 1, 2, 3], "probability": 0.9, "start": "06:00", "durations_min": [480], "titles": ["Early shift"], "locations": ["Work"], "week_parity": "odd" },
+            { "id": "late_shift", "category": "work", "kind": "recurring", "days": [2, 3, 4, 5], "probability": 0.9, "start": "14:00", "durations_min": [480], "titles": ["Late shift"], "locations": ["Work"], "week_parity": "even" },
+            { "id": "training", "category": "work", "kind": "random", "days": [0, 1], "probability": 0.1, "window_start": "10:00", "window_end": "13:00", "durations_min": [120], "titles": ["Mandatory training"], "locations": ["Work"], "week_parity": "even" }
+          ]
+        },
+        {
+          "id": "freelancer",
+          "label": "Self-employed / freelancer",
+          "weight": 0.8,
+          "patterns": [
+            { "id": "client_calls", "category": "work", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.75, "count": [1, 2], "window_start": "10:00", "window_end": "18:00", "durations_min": [30, 60], "titles": ["Call with {client}", "Pitch: {client}", "Kick-off: {project}"], "locations": ["Video call", "Client office"] },
+            { "id": "deep_work", "category": "work", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.6, "window_start": "09:00", "window_end": "19:00", "durations_min": [120, 180], "titles": ["Deadline: {project}", "Deep work"], "locations": ["Co-working space", "Home"] },
+            { "id": "admin", "category": "work", "kind": "recurring", "days": [4], "probability": 0.7, "start": "16:00", "durations_min": [60], "titles": ["Invoicing & admin"], "locations": ["Home"] }
+          ]
+        },
+        {
+          "id": "retired",
+          "label": "Retired",
+          "weight": 0.6,
+          "patterns": [
+            { "id": "coffee", "category": "social", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.35, "window_start": "10:00", "window_end": "12:30", "durations_min": [60, 90], "titles": ["Coffee with {friend}"], "locations": ["Café"] },
+            { "id": "appointments", "category": "health", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.08, "window_start": "09:00", "window_end": "16:00", "durations_min": [30], "titles": ["Doctor's appointment", "Dentist", "Eye test"], "locations": ["Clinic"] },
+            { "id": "lunch", "category": "social", "kind": "random", "days": [2, 3, 6], "probability": 0.3, "window_start": "12:00", "window_end": "15:00", "durations_min": [90], "titles": ["Lunch with {friend}", "Family lunch"], "locations": ["Restaurant", "Home"] }
+          ]
+        },
+        {
+          "id": "student",
+          "label": "University student",
+          "weight": 0.6,
+          "patterns": [
+            { "id": "lectures", "category": "study", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.85, "count": [1, 3], "window_start": "09:00", "window_end": "17:00", "durations_min": [60, 120], "titles": ["{course} lecture", "{course} seminar", "Lab session"], "locations": ["Campus"] },
+            { "id": "study_group", "category": "study", "kind": "random", "days": [1, 3], "probability": 0.4, "window_start": "17:00", "window_end": "20:00", "durations_min": [90], "titles": ["Study group"], "locations": ["Library"] },
+            { "id": "part_time_job", "category": "work", "kind": "recurring", "days": [5], "probability": 0.8, "start": "10:00", "durations_min": [360], "titles": ["Part-time job"], "locations": ["Work"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "household",
+      "label": "Household",
+      "pick": [1, 1],
+      "traits": [
+        {
+          "id": "no_dependants",
+          "label": "No children or caring responsibilities",
+          "weight": 1.6,
+          "patterns": [
+            { "id": "groceries", "category": "personal", "kind": "random", "days": [5, 6], "probability": 0.5, "window_start": "09:00", "window_end": "13:00", "durations_min": [60], "titles": ["Grocery shop"], "locations": ["Supermarket"] },
+            { "id": "family_call", "category": "family", "kind": "recurring", "days": [6], "probability": 0.6, "start": "18:00", "durations_min": [30], "titles": ["Call with {relative}"], "locations": ["Phone"] }
+          ]
+        },
+        {
+          "id": "young_children",
+          "label": "Parent of young children",
+          "weight": 1.0,
+          "patterns": [
+            { "id": "drop_off", "category": "family", "kind": "recurring", "days": [0, 1, 2, 3, 4], "probability": 0.8, "start": "08:15", "durations_min": [30], "titles": ["School drop-off"], "locations": ["School"] },
+            { "id": "pick_up", "category": "family", "kind": "recurring", "days": [1, 3], "probability": 0.85, "start": "17:30", "durations_min": [60], "titles": ["Pick up {kid} from swimming", "Pick up {kid} from after-school club"], "locations": ["Leisure centre", "School"] },
+            { "id": "bedtime", "category": "family", "kind": "recurring", "days": [0, 2, 4, 6], "probability": 0.55, "start": "19:00", "durations_min": [60], "titles": ["Bath & bedtime (my turn)"], "locations": ["Home"] },
+            { "id": "kids_weekend", "category": "family", "kind": "random", "days": [5, 6], "probability": 0.75, "window_start": "09:00", "window_end": "17:00", "durations_min": [90, 120, 180], "titles": ["{kid}'s friend's birthday party", "Swimming lessons", "Family lunch with {relative}", "Trip to the park"], "locations": ["Community centre", "Leisure centre", "{relative}'s house", "Park"] },
+            { "id": "parents_evening", "category": "family", "kind": "random", "days": [1, 2, 3], "probability": 0.04, "window_start": "17:30", "window_end": "20:00", "durations_min": [60], "titles": ["Parents' evening"], "locations": ["School"] }
+          ]
+        },
+        {
+          "id": "teenagers",
+          "label": "Parent of teenagers",
+          "weight": 0.8,
+          "patterns": [
+            { "id": "practice", "category": "family", "kind": "recurring", "days": [1, 3], "probability": 0.8, "start": "18:00", "durations_min": [90], "titles": ["Drive {kid} to football practice", "{kid}'s band rehearsal"], "locations": ["Sports club", "Music school"] },
+            { "id": "match", "category": "family", "kind": "random", "days": [5], "probability": 0.6, "window_start": "09:00", "window_end": "13:00", "durations_min": [120], "titles": ["{kid}'s match"], "locations": ["Sports club"] },
+            { "id": "school_event", "category": "family", "kind": "random", "days": [1, 2, 3], "probability": 0.05, "window_start": "18:00", "window_end": "21:00", "durations_min": [90], "titles": ["School play", "Parents' evening", "Open evening"], "locations": ["School"] }
+          ]
+        },
+        {
+          "id": "carer",
+          "label": "Helps care for a parent",
+          "weight": 0.5,
+          "patterns": [
+            { "id": "visit", "category": "family", "kind": "recurring", "days": [2, 6], "probability": 0.8, "start": "17:30", "durations_min": [120], "titles": ["Visit {relative}"], "locations": ["{relative}'s house"] },
+            { "id": "appointment", "category": "health", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.06, "window_start": "09:00", "window_end": "15:00", "durations_min": [90], "titles": ["Take {relative} to hospital appointment"], "locations": ["Hospital"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fitness",
+      "label": "Fitness",
+      "pick": [1, 1],
+      "traits": [
+        { "id": "morning_gym", "label": "Early gym-goer", "weight": 1.0, "patterns": [
+          { "id": "gym", "category": "fitness", "kind": "recurring", "days": [0, 2, 4], "probability": 0.8, "start": "07:00", "durations_min": [60], "titles": ["Gym"], "locations": ["Gym"] }
+        ] },
+        { "id": "evening_classes", "label": "Evening fitness classes", "weight": 0.9, "patterns": [
+          { "id": "yoga", "category": "fitness", "kind": "recurring", "days": [1], "probability": 0.8, "start": "18:30", "durations_min": [60], "titles": ["Yoga"], "locations": ["Studio"] },
+          { "id": "spin", "category": "fitness", "kind": "recurring", "days": [3], "probability": 0.75, "start": "18:45", "durations_min": [45], "titles": ["Spin class"], "locations": ["Gym"] }
+        ] },
+        { "id": "weekend_runner", "label": "Weekend runner", "weight": 0.8, "patterns": [
+          { "id": "parkrun", "category": "fitness", "kind": "recurring", "days": [5], "probability": 0.7, "start": "09:00", "durations_min": [60], "titles": ["5k run"], "locations": ["Park"] },
+          { "id": "long_run", "category": "fitness", "kind": "recurring", "days": [6], "probability": 0.6, "start": "08:30", "durations_min": [90], "titles": ["Long run"], "locations": ["Outside"] }
+        ] },
+        { "id": "team_sport", "label": "Plays a team sport", "weight": 0.6, "patterns": [
+          { "id": "five_a_side", "category": "fitness", "kind": "recurring", "days": [2], "probability": 0.8, "start": "19:30", "durations_min": [60], "titles": ["5-a-side football", "Netball", "Basketball"], "locations": ["Sports centre"] }
+        ] },
+        { "id": "not_sporty", "label": "No regular exercise", "weight": 0.9, "patterns": [] }
+      ]
+    },
+    {
+      "id": "social",
+      "label": "Social life",
+      "pick": [1, 1],
+      "traits": [
+        { "id": "busy_social", "label": "Busy social life", "weight": 0.9, "patterns": [
+          { "id": "drinks", "category": "social", "kind": "random", "days": [3, 4], "probability": 0.4, "window_start": "18:30", "window_end": "22:30", "durations_min": [120, 150], "titles": ["Drinks with {friend}", "{friend}'s birthday drinks", "After-work drinks"], "locations": ["Bar"] },
+          { "id": "dinner", "category": "social", "kind": "random", "days": [2, 5], "probability": 0.3, "window_start": "19:00", "window_end": "23:00", "durations_min": [150], "titles": ["Dinner with {friend}", "Dinner party at {friend}'s"], "locations": ["Restaurant", "{friend}'s place"] },
+          { "id": "weekend_plans", "category": "social", "kind": "random", "days": [5, 6], "probability": 0.5, "window_start": "11:00", "window_end": "18:00", "durations_min": [120, 180], "titles": ["Brunch with {friend}", "Cinema with {friend}", "Day out with {friend}"], "locations": ["Café", "Cinema", "Town"] }
+        ] },
+        { "id": "occasional_social", "label": "Occasional plans with friends", "weight": 1.2, "patterns": [
+          { "id": "catch_up", "category": "social", "kind": "random", "days": [3, 4, 5], "probability": 0.15, "window_start": "18:30", "window_end": "22:30", "durations_min": [120], "titles": ["Catch-up with {friend}", "Drinks with {friend}"], "locations": ["Bar", "Restaurant"] },
+          { "id": "weekend", "category": "social", "kind": "random", "days": [5, 6], "probability": 0.25, "window_start": "11:00", "window_end": "17:00", "durations_min": [120], "titles": ["Lunch with {friend}", "Walk with {friend}"], "locations": ["Café", "Park"] }
+        ] },
+        { "id": "homebody", "label": "Prefers quiet nights in", "weight": 0.7, "patterns": [
+          { "id": "film_night", "category": "personal", "kind": "recurring", "days": [4], "probability": 0.4, "start": "20:00", "durations_min": [150], "titles": ["Film night"], "locations": ["Home"] }
+        ] }
+      ]
+    },
+    {
+      "id": "extras",
+      "label": "Extras",
+      "pick": [0, 2],
+      "traits": [
+        { "id": "frequent_traveller", "label": "Travels for work", "weight": 0.6, "patterns": [
+          { "id": "trip", "category": "travel", "kind": "all_day", "days": [0, 1, 2, 3, 4], "probability": 0.06, "titles": ["Work trip", "Conference", "Travel day"] }
+        ] },
+        { "id": "hobby_class", "label": "Weekly hobby class", "weight": 0.8, "patterns": [
+          { "id": "class", "category": "personal", "kind": "recurring", "days": [2], "probability": 0.85, "start": "19:00", "durations_min": [120], "titles": ["{hobby} class"], "locations": ["Community centre"] }
+        ] },
+        { "id": "volunteer", "label": "Volunteers", "weight": 0.5, "patterns": [
+          { "id": "volunteering", "category": "personal", "kind": "recurring", "days": [5], "probability": 0.6, "start": "10:00", "durations_min": [180], "titles": ["Volunteering"], "locations": ["Community centre"] }
+        ] },
+        { "id": "book_club", "label": "Book club", "weight": 0.5, "patterns": [
+          { "id": "book_club", "category": "social", "kind": "recurring", "days": [1], "probability": 0.9, "start": "19:30", "durations_min": [120], "titles": ["Book club"], "locations": ["{friend}'s place"], "week_parity": "odd" }
+        ] },
+        { "id": "date_nights", "label": "Regular date nights", "weight": 0.6, "patterns": [
+          { "id": "date_night", "category": "social", "kind": "random", "days": [4, 5], "probability": 0.3, "window_start": "19:00", "window_end": "23:00", "durations_min": [150], "titles": ["Date night"], "locations": ["TBC"] }
+        ] },
+        { "id": "health_upkeep", "label": "Regular health appointments", "weight": 0.5, "patterns": [
+          { "id": "physio", "category": "health", "kind": "random", "days": [0, 1, 2, 3, 4], "probability": 0.08, "window_start": "08:00", "window_end": "18:00", "durations_min": [45], "titles": ["Physio", "Dentist", "GP appointment"], "locations": ["Clinic"] }
+        ] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "halcyon-d1-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "dev": { "ip": "127.0.0.1", "port": 8711 },
+  "d1_databases": [
+    {
+      "binding": "MOCK_SERVICES_DB",
+      "database_name": "halcyon-mock-services-local",
+      "database_id": "halcyon-mock-services-local",
+      "migrations_dir": "../../mock-services/migrations"
+    },
+    {
+      "binding": "AGENT_DB",
+      "database_name": "halcyon-agent-local",
+      "database_id": "halcyon-agent-local",
+      "migrations_dir": "../../agent-api/migrations"
+    }
+  ]
+}

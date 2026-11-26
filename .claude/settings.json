@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.dev.vars)",
+      "Read(**/.dev.vars.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/node_modules/**)",
+      "Read(**/.venv/**)",
+      "Read(**/__pycache__/**)",
+      "Read(**/*.egg-info/**)",
+      "Read(**/.pytest_cache/**)",
+      "Read(**/.wrangler/**)",
+      "Read(**/dist/**)",
+      "Read(./.local/**)",
+      "Read(**/*.sqlite*)"
+    ]
+  }
+}

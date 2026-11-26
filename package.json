@@ -1,0 +1,22 @@
+{
+  "name": "halcyon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "node scripts/dev.mjs --no-ui",
+    "db:reset": "node scripts/dev.mjs reset",
+    "db:staging": "node scripts/deploy.mjs staging --db-only",
+    "db:production": "node scripts/deploy.mjs production --db-only",
+    "deploy:staging": "node scripts/deploy.mjs staging",
+    "deploy:production": "node scripts/deploy.mjs production",
+    "lint": "oxlint --deny-warnings",
+    "format": "prettier --write \"**/*.{js,mjs,ts}\"",
+    "format:check": "prettier --check \"**/*.{js,mjs,ts}\""
+  },
+  "devDependencies": {
+    "oxlint": "1.95.0",
+    "prettier": "3.10.1"
+  }
+}

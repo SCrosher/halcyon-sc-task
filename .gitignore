@@ -1,0 +1,62 @@
+# --- Secrets -------------------------------------------------------------
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+
+# --- Python --------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Node / TypeScript / Vite -------------------------------------------
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Cloudflare / wrangler ----------------------------------------------
+.wrangler/
+.mf/
+
+# --- Local development data (wrangler local D1) -------------------------
+.local/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# --- Logs ---------------------------------------------------------------
+logs/
+*.log
+
+# --- Editors / OS -------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Claude Code (personal settings; .claude/settings.json is shared) ---
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,0 +1,97 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "halcyon-mock-services",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "halcyon-mock-services-staging",
+      "routes": [
+        {
+          "pattern": "staging-mock.joinhalcyon.app",
+          "custom_domain": true
+        }
+      ],
+      "workers_dev": false,
+      "preview_urls": false,
+      "containers": [
+        {
+          "class_name": "MockServicesContainer",
+          "image": "./Dockerfile",
+          "max_instances": 1
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "MockServicesContainer",
+            "name": "MOCK_SERVICES"
+          }
+        ]
+      },
+      "exports": {
+        "MockServicesContainer": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        }
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "halcyon-mock-services-staging",
+          "database_id": "849275a1-051f-4e92-a5d2-1683adb335c5",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "HALCYON_ENV": "staging"
+      }
+    },
+    "production": {
+      "name": "halcyon-mock-services-production",
+      "routes": [
+        {
+          "pattern": "mock.joinhalcyon.app",
+          "custom_domain": true
+        }
+      ],
+      "workers_dev": false,
+      "preview_urls": false,
+      "containers": [
+        {
+          "class_name": "MockServicesContainer",
+          "image": "./Dockerfile",
+          "max_instances": 1
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "MockServicesContainer",
+            "name": "MOCK_SERVICES"
+          }
+        ]
+      },
+      "exports": {
+        "MockServicesContainer": {
+          "type": "durable-object",
+          "storage": "sqlite"
+        }
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "halcyon-mock-services-production",
+          "database_id": "",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "HALCYON_ENV": "production"
+      }
+    }
+  }
+}

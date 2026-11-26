@@ -1,0 +1,8 @@
+.venv
+node_modules
+.wrangler
+tests
+scripts
+worker
+**/__pycache__
+.env
