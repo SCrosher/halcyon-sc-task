@@ -39,7 +39,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         db = D1Database(settings.d1.api_url, settings.d1.account_id, settings.d1.database_id, settings.d1.api_token)
         app.state.calendar = CalendarService(db, load_rules(), today=settings.today)
-        app.state.restaurants = RestaurantService(db, today=settings.today)
+        # Booking dates are checked against each restaurant's own local date.
+        app.state.restaurants = RestaurantService(db)
         bind_service(app.state.restaurants)
         async with mcp.session_manager.run():
             yield

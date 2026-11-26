@@ -33,11 +33,20 @@ async def test_search_and_book_over_mcp(restaurants):
     async with Client(mcp) as client:
         result = await client.call_tool(
             "search_restaurants",
-            {"tags": ["romantic"], "min_price_level": 3, "date": thursday, "time": "19:30", "party_size": 2},
+            {
+                "city": "paris",
+                "tags": ["romantic"],
+                "min_price_level": 3,
+                "date": thursday,
+                "time": "19:30",
+                "party_size": 2,
+            },
         )
         assert not result.is_error
         payload = result.structured_content or json.loads(result.content[0].text)
         assert payload["results"]
+        assert {r["city"] for r in payload["results"]} == {"Paris"}
+        assert all(r["avg_spend_per_head"].startswith("€") for r in payload["results"])
         option = next(r for r in payload["results"] if r.get("available_times"))
 
         booked = await client.call_tool(
@@ -55,6 +64,13 @@ async def test_search_and_book_over_mcp(restaurants):
         assert not booked.is_error
         booking = booked.structured_content or json.loads(booked.content[0].text)
         assert booking["status"] == "confirmed"
+
+        assert booking["restaurant"]["city"] == "Paris"
+
+        uncovered = await client.call_tool("search_restaurants", {"city": "tokyo"})
+        assert uncovered.is_error, "only the covered cities are accepted"
+        missing_city = await client.call_tool("search_restaurants", {"cuisine": "Italian"})
+        assert missing_city.is_error, "city is required"
 
         bad = await client.call_tool("get_restaurant", {"restaurant_id": "nope"})
         assert bad.is_error

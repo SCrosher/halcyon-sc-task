@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
+from ..cities import CITIES
 from .service import BookingError, RestaurantService
 
 mcp = MCPServer(
@@ -16,8 +17,10 @@ mcp = MCPServer(
     title="Halcyon restaurant directory & bookings (mock)",
     version="1.0.0",
     instructions=(
-        "Mock London restaurant directory. Search first, then check availability for a specific "
-        "restaurant/date/party size, then create_booking with one of the returned times."
+        "Mock restaurant directory for London, Paris, New York and Los Angeles only. Search first (always "
+        "with a city), then check availability for a specific restaurant/date/party size, then "
+        "create_booking with one of the returned times. Dates and times are the restaurant's local time; "
+        "prices are in the city's currency."
     ),
 )
 
@@ -38,26 +41,39 @@ def svc() -> RestaurantService:
 Date = Annotated[dt.date, Field(description="Date as YYYY-MM-DD")]
 Time = Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="24h time HH:MM")]
 PartySize = Annotated[int, Field(ge=1, le=20, description="Number of guests")]
+CityId = Literal["london", "paris", "new_york", "los_angeles"]
+assert set(CityId.__args__) == set(CITIES), "CityId must list exactly the covered cities"
 
 
 @mcp.tool()
 async def search_restaurants(
+    city: Annotated[
+        CityId,
+        Field(description="City to search: london, paris, new_york or los_angeles. No other cities are covered."),
+    ],
     query: Annotated[
         str | None, Field(description="Free-text keywords matched against name, description and tags")
     ] = None,
     cuisine: Annotated[str | None, Field(description="e.g. Italian, Japanese, French, Indian, Seafood")] = None,
-    area: Annotated[str | None, Field(description="London area, e.g. Soho, Mayfair, Shoreditch, Islington")] = None,
-    min_price_level: Annotated[int | None, Field(ge=1, le=4, description="1=£ .. 4=££££")] = None,
-    max_price_level: Annotated[int | None, Field(ge=1, le=4, description="1=£ .. 4=££££")] = None,
+    area: Annotated[
+        str | None,
+        Field(
+            description="Neighbourhood within the city, e.g. Soho (London), Le Marais (Paris), "
+            "West Village (New York), Santa Monica (Los Angeles)"
+        ),
+    ] = None,
+    min_price_level: Annotated[int | None, Field(ge=1, le=4, description="1 (cheap) .. 4 (very expensive)")] = None,
+    max_price_level: Annotated[int | None, Field(ge=1, le=4, description="1 (cheap) .. 4 (very expensive)")] = None,
     tags: Annotated[
         list[str] | None,
         Field(
             description="Preferred vibe tags, ranked not filtered: romantic, quiet, lively, special_occasion, "
-            "business, views, terrace, tasting_menu, group_friendly, casual, pre_theatre, late_night"
+            "business, views, terrace, tasting_menu, group_friendly, casual, pre_theatre, late_night, "
+            "wine_list, natural_wine, wine_bar, cocktails"
         ),
     ] = None,
     dietary: Annotated[
-        list[str] | None, Field(description="Required dietary options: vegetarian, vegan, gluten_free, halal")
+        list[str] | None, Field(description="Required dietary options: vegetarian, vegan, gluten_free, halal, kosher")
     ] = None,
     party_size: PartySize | None = None,
     date: Annotated[
@@ -66,9 +82,10 @@ async def search_restaurants(
     time: Annotated[str | None, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="Preferred time HH:MM")] = None,
     limit: Annotated[int, Field(ge=1, le=10)] = 5,
 ) -> dict[str, Any]:
-    """Search the restaurant directory. Returns the best matches, optionally with availability."""
+    """Search one city's restaurants. Returns the best matches, optionally with availability."""
     service = svc()
     matches = service.search(
+        city=city,
         query=query,
         cuisine=cuisine,
         area=area,

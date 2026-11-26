@@ -176,9 +176,7 @@
       "label": "Extras",
       "pick": [0, 2],
       "traits": [
-        { "id": "frequent_traveller", "label": "Travels for work", "weight": 0.6, "patterns": [
-          { "id": "trip", "category": "travel", "kind": "all_day", "days": [0, 1, 2, 3, 4], "probability": 0.06, "titles": ["Work trip", "Conference", "Travel day"] }
-        ] },
+        { "id": "frequent_traveller", "label": "Travels for work", "weight": 0.6, "patterns": [] },
         { "id": "hobby_class", "label": "Weekly hobby class", "weight": 0.8, "patterns": [
           { "id": "class", "category": "personal", "kind": "recurring", "days": [2], "probability": 0.85, "start": "19:00", "durations_min": [120], "titles": ["{hobby} class"], "locations": ["Community centre"] }
         ] },

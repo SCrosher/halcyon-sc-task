@@ -15,12 +15,15 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
+from .geography import trip_events, trip_on
 from .rules import CalendarRules, Pattern, Trait
 
 EVENT_NAMESPACE = uuid.UUID("6f2a4c1e-9b7d-4e3a-8c5f-1d2e3f4a5b6c")
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 STEP_MIN = 15
 KIND_ORDER = {"all_day": 0, "recurring": 1, "random": 2}
+# The extras trait that makes trips (see geography.py) more frequent and more often for work.
+FREQUENT_TRAVELLER = "frequent_traveller"
 
 
 @dataclass
@@ -115,6 +118,17 @@ def _place(pattern: Pattern, rng: random.Random, taken: list[tuple[int, int]], r
 def generate_day(rules: CalendarRules, member_id: str, traits: list[Trait], day: date) -> list[Event]:
     vocab = rules.vocab_map()
     day_str = day.isoformat()
+
+    # Away from home, the trip replaces the usual routine.
+    trip = trip_on(rules.seed, member_id, day, any(t.id == FREQUENT_TRAVELLER for t in traits))
+    if trip is not None:
+        return sorted(
+            (
+                Event(e.id, e.title, day_str, e.start_time, e.end_time, e.all_day, e.location, e.category, "generated")
+                for e in trip_events(rules.seed, member_id, trip, day, vocab.get("client", ["a client"]))
+            ),
+            key=sort_key,
+        )
     events: list[Event] = []
     taken: list[tuple[int, int]] = []
 

@@ -33,19 +33,21 @@ PROMPT = """Design a trait library for a realistic mock calendar generator used 
 
 We know nothing about a member before generating their calendar, so the traits must be generic: they should
 apply to anyone, anywhere. No cities, neighbourhoods, venues or region-specific customs; locations are generic
-("Office", "Gym", "Home", "School", "Video call"). All times are local wall-clock times.
+("Office", "Gym", "Home", "School", "Video call"). All times are local wall-clock times. Home cities and trips
+away are generated separately by code, so don't write travel patterns.
 
 Each member gets traits picked at random per group, so write these trait_groups (pick = [min, max] per member):
 - work [1, 1]: e.g. office 9-5, hybrid, shift worker on a rota, freelancer, retired, student
 - household [1, 1]: e.g. no dependants, young children, teenagers, caring for a parent
 - fitness [1, 1]: e.g. early gym, evening classes, weekend runner, team sport, none (a trait may have no patterns)
 - social [1, 1]: e.g. busy, occasional, homebody
-- extras [0, 2]: e.g. travels for work, weekly hobby class, volunteering, book club, date nights
+- extras [0, 2]: e.g. weekly hobby class, volunteering, book club, date nights. Include a trait with id
+  "frequent_traveller" (label "Travels for work") and no patterns: code uses it to schedule more work trips.
 Give every trait a weight (relative likelihood within its group) and 0-5 patterns:
   - kind "recurring": fixed start time (HH:MM) on given weekdays, e.g. stand-ups, school runs, classes
   - kind "random": a start picked in [window_start, window_end] with durations_min options and an optional
     count [min, max] for how many happen that day (e.g. meetings [2, 4])
-  - kind "all_day": whole-day blocks such as travel, with a low probability
+  - kind "all_day": whole-day blocks such as a day off or an all-day event, with a low probability
   - days use 0=Monday .. 6=Sunday; probability is per eligible day; week_parity "odd"/"even" for rotas
   - titles and locations may use {placeholders}; vocab must define every placeholder used
 

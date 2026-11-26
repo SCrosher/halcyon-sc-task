@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from ..db import D1Database
 from .generator import Event, choose_traits, generate_range, to_minutes
+from .geography import home_city
 from .rules import CalendarRules, Trait
 
 WINDOW_DAYS_BACK = 14
@@ -140,8 +141,10 @@ class CalendarService:
             if trait_id in self._traits:
                 group, trait = self._traits[trait_id]
                 traits.append({"group": group.id, "id": trait.id, "label": trait.label})
+        home = home_city(row["seed"], member_id)
         return {
             "member_id": member_id,
+            "home_city": home.name,
             "traits": traits,
             "generated_from": row["generated_from"],
             "generated_to": row["generated_to"],
@@ -179,10 +182,8 @@ class CalendarService:
         conflicts = []
         for event in day_events:
             interval = event.interval()
-            if interval is None:
-                if event.category == "travel":  # all-day travel blocks the evening too
-                    conflicts.append(event)
-            elif interval[0] < window[1] and window[0] < interval[1]:
+            # All-day events (e.g. a trip, which says which city they're in) don't block a time window.
+            if interval is not None and interval[0] < window[1] and window[0] < interval[1]:
                 conflicts.append(event)
         return {
             "date": day.isoformat(),

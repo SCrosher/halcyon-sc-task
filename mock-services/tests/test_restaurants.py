@@ -3,7 +3,8 @@ from datetime import timedelta
 
 import pytest
 
-from app.restaurants.service import TABLES_NEEDED_SQL, BookingError, tables_needed
+from app.cities import CITIES
+from app.restaurants.service import TABLES_NEEDED_SQL, BookingError, load_restaurants, tables_needed
 
 from .conftest import TODAY
 
@@ -20,6 +21,32 @@ def test_search_filters(restaurants):
 
     assert all(r["price_level"] >= 3 for r in restaurants.search(min_price_level=3))
     assert all(r["max_party_size"] >= 10 for r in restaurants.search(party_size=10))
+
+
+def test_every_city_has_a_full_directory():
+    rows = load_restaurants()
+    assert {r["city"] for r in rows} == set(CITIES)
+    for city in CITIES:
+        in_city = [r for r in rows if r["city"] == city]
+        assert len(in_city) >= 10
+        assert len({r["cuisine"] for r in in_city}) >= 8, "each city needs a varied mix"
+        assert {1, 2, 3, 4} >= {r["price_level"] for r in in_city} >= {2, 3, 4}
+
+
+def test_search_is_limited_to_one_city(restaurants):
+    for city in CITIES:
+        results = restaurants.search(city=city)
+        assert results and all(r["city"] == city for r in results)
+    assert restaurants.search(city="london", area="soho") == restaurants.search(area="soho")
+
+
+def test_prices_are_in_local_currency(restaurants):
+    expected = {"london": "£", "paris": "€", "new_york": "$", "los_angeles": "$"}
+    for city, symbol in expected.items():
+        for r in restaurants.search(city=city):
+            summary = restaurants.summary(r)
+            assert summary["price"] == symbol * r["price_level"]
+            assert summary["avg_spend_per_head"] == f"{symbol}{r['avg_spend']}"
 
 
 def test_tags_rank_results(restaurants):

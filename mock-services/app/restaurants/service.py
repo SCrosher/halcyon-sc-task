@@ -17,13 +17,14 @@ from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from ..cities import CITIES, City
 from ..db import D1Database
 
 DATA_PATH = Path(__file__).with_name("restaurants.json")
 SLOT_MIN = 30
 DAY_FACTOR = {0: 0.55, 1: 0.65, 2: 0.8, 3: 0.95, 4: 1.2, 5: 1.25, 6: 0.7}
-PRICE_SYMBOL = {1: "£", 2: "££", 3: "£££", 4: "££££"}
 
 
 class BookingError(ValueError):
@@ -63,11 +64,21 @@ class Slot:
     tables_left: int
 
 
+def city_of(r: dict[str, Any]) -> City:
+    return CITIES[r["city"]]
+
+
 class RestaurantService:
     def __init__(self, db: D1Database, today: Callable[[], date] | None = None):
+        """``today`` pins one date for every city (tests); by default it is each city's local date."""
         self.db = db
-        self._today = today or (lambda: datetime.now(UTC).date())
+        self._fixed_today = today
         self.restaurants = {r["id"]: r for r in load_restaurants()}
+
+    def _today(self, city: City) -> date:
+        if self._fixed_today is not None:
+            return self._fixed_today()
+        return datetime.now(ZoneInfo(city.timezone)).date()
 
     def get(self, restaurant_id: str) -> dict[str, Any]:
         restaurant = self.restaurants.get(restaurant_id)
@@ -77,13 +88,15 @@ class RestaurantService:
 
     @staticmethod
     def summary(r: dict[str, Any]) -> dict[str, Any]:
+        city = city_of(r)
         return {
             "restaurant_id": r["id"],
             "name": r["name"],
+            "city": city.name,
             "cuisine": r["cuisine"],
             "area": r["area"],
-            "price": PRICE_SYMBOL[r["price_level"]],
-            "avg_spend_per_head_gbp": r["avg_spend_gbp"],
+            "price": city.symbol * r["price_level"],
+            "avg_spend_per_head": f"{city.symbol}{r['avg_spend']}",
             "rating": r["rating"],
             "tags": r["tags"],
             "dietary_options": r["dietary"],
@@ -100,11 +113,13 @@ class RestaurantService:
             "lunch_service": r["lunch"],
             "dinner_service": r["dinner"],
             "max_party_size": r["max_party_size"],
+            "timezone": city_of(r).timezone,
         }
 
     def search(
         self,
         *,
+        city: str | None = None,
         query: str | None = None,
         cuisine: str | None = None,
         area: str | None = None,
@@ -115,6 +130,8 @@ class RestaurantService:
         party_size: int | None = None,
     ) -> list[dict[str, Any]]:
         def matches(r: dict[str, Any]) -> bool:
+            if city and r["city"] != city:
+                return False
             if cuisine and cuisine.lower() not in r["cuisine"].lower():
                 return False
             if area and area.lower() not in r["area"].lower():
@@ -178,16 +195,17 @@ class RestaurantService:
             taken[row["time"]] = taken.get(row["time"], 0) + tables_needed(int(row["party_size"]))
         return taken
 
-    def _validate_day(self, day: date) -> None:
-        today = self._today()
+    def _validate_day(self, r: dict[str, Any], day: date) -> None:
+        city = city_of(r)
+        today = self._today(city)
         if day < today:
-            raise BookingError(f"{day.isoformat()} is in the past (today is {today.isoformat()}).")
+            raise BookingError(f"{day.isoformat()} is in the past (today in {city.name} is {today.isoformat()}).")
         if day > today + timedelta(days=90):
             raise BookingError("Bookings open 90 days in advance.")
 
     async def slots(self, restaurant_id: str, day: date, party_size: int) -> list[Slot]:
         r = self.get(restaurant_id)
-        self._validate_day(day)
+        self._validate_day(r, day)
         if party_size > r["max_party_size"]:
             return []
         needed = tables_needed(party_size)
@@ -244,7 +262,7 @@ class RestaurantService:
             f"{r['name']} has no table for {party_size} at {time} on {day.isoformat()}. "
             "Call check_availability for open times."
         )
-        self._validate_day(day)
+        self._validate_day(r, day)
         if party_size > r["max_party_size"] or time not in self._service_slots(r, day):
             raise no_table
         # Booked tables may not exceed this; the check and the insert are one statement, so two
@@ -283,7 +301,13 @@ class RestaurantService:
             "booking_id": booking_id,
             "reference": reference,
             "status": "confirmed",
-            "restaurant": {"restaurant_id": r["id"], "name": r["name"], "address": r["address"], "area": r["area"]},
+            "restaurant": {
+                "restaurant_id": r["id"],
+                "name": r["name"],
+                "address": r["address"],
+                "area": r["area"],
+                "city": city_of(r).name,
+            },
             "date": day.isoformat(),
             "time": time,
             "party_size": party_size,
@@ -300,6 +324,7 @@ class RestaurantService:
             "restaurant_id": row["restaurant_id"],
             "restaurant_name": r.get("name"),
             "area": r.get("area"),
+            "city": city_of(r).name if r else None,
             "cuisine": r.get("cuisine"),
             "date": row["date"],
             "time": row["time"],
@@ -314,8 +339,12 @@ class RestaurantService:
                 "SELECT * FROM bookings WHERE member_id = ? ORDER BY date DESC, time DESC LIMIT 50", (member_id,)
             )
         ).rows
-        today = self._today().isoformat()
-        return [self._booking_view(r) for r in rows if include_past or r["date"] >= today]
+
+        def upcoming(row: dict[str, Any]) -> bool:
+            r = self.restaurants.get(row["restaurant_id"])
+            return row["date"] >= self._today(city_of(r) if r else CITIES["london"]).isoformat()
+
+        return [self._booking_view(r) for r in rows if include_past or upcoming(r)]
 
     async def cancel_booking(self, booking_id: str, member_id: str) -> dict[str, Any]:
         rows = (

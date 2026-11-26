@@ -90,7 +90,9 @@ CALENDAR_TOOLS = [
         name="calendar_list_events",
         description=(
             f"List the member's calendar events between two dates (inclusive, max {MAX_LIST_DAYS} days). "
-            "Use for context such as what they're doing before/after dinner or which evenings are free."
+            "Use for context such as what they're doing before/after dinner or which evenings are free, "
+            "and to see which city they'll be in: an all-day trip event's location is the city, and flights "
+            "show travel days."
         ),
         parameters=object_schema({"start_date": DATE, "end_date": DATE}, ["start_date"]),
         source="calendar",
@@ -99,7 +101,10 @@ CALENDAR_TOOLS = [
     ),
     Tool(
         name="calendar_check_availability",
-        description="Check whether the member is free in a time window on a date; returns any conflicts.",
+        description=(
+            "Check whether the member is free in a time window on a date; returns any conflicts and the rest "
+            "of the day, including any all-day trip event that shows which city they're in."
+        ),
         parameters=object_schema(
             {"date": DATE, "start_time": TIME, "end_time": TIME}, ["date", "start_time", "end_time"]
         ),

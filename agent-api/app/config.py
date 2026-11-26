@@ -53,7 +53,6 @@ class Settings(BaseSettings):
     agent_d1_database_id: str = ""
 
     # Turn behaviour
-    member_timezone: str = "Europe/London"
     # Post a holding message if no assistant message has gone out for this long (must stay under 12s).
     holding_message_after_seconds: float = 9.0
     turn_timeout_seconds: float = 120.0

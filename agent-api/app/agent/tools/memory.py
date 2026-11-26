@@ -10,6 +10,7 @@ CATEGORIES = [
     "dietary",
     "likes",
     "dislikes",
+    "drinks",
     "budget",
     "locations",
     "people",
@@ -48,9 +49,12 @@ MEMORY_TOOLS = [
     Tool(
         name="memory_save",
         description=(
-            "Remember a durable fact or preference about the member for future conversations "
-            "(dietary needs, likes/dislikes, budget, usual areas, people, routines). Not for one-off details "
-            "of the current request. Update an existing memory instead of saving a near-duplicate."
+            "Remember a durable fact or preference about the member for future conversations. Call it "
+            "unprompted whenever you learn one: home city (category locations), dietary needs and allergies, "
+            "favourite wines and drinks, cuisines and restaurants they like or dislike, the people they dine "
+            "with and those people's tastes, birthdays and anniversaries, budget, usual areas and routines. "
+            "Not for one-off details of the current request. Update an existing memory instead of saving a "
+            "near-duplicate."
         ),
         parameters=object_schema(
             {"category": {"type": "string", "enum": CATEGORIES}, "content": CONTENT}, ["category", "content"]

@@ -63,7 +63,7 @@ class TurnRunner:
             memories = await self.store.list_memories(member.id)
             history = recent_turns(await self.store.load_transcript(conversation_id), self.settings.max_history_turns)
             # Operator-authored context after the member's message (mid-conversation system message).
-            turn.append({"role": "system", "content": turn_context(member, memories, self.settings.member_timezone)})
+            turn.append({"role": "system", "content": turn_context(member, memories)})
             tools = [*MEMORY_TOOLS, *CALENDAR_TOOLS, *await self.catalog.tools(session)]
             ctx = TurnContext(member, self.store, self.settings, self.mock_http)
             status = await asyncio.wait_for(
